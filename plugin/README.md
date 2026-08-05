@@ -10,6 +10,8 @@ For the full explanation of why this exists and how it works, see the [project R
 
 This plugin runs its hooks and MCP server with [Node.js](https://nodejs.org). Node.js must be installed and on your `PATH` before installing, otherwise the plugin's hooks fail and tool calls are not intercepted.
 
+Do not use this plugin under Cursor. Disable **Include third-party Plugins, Skills, and other configs** under **Cursor Settings → Rules, Skills, Subagents** so Cursor does not load these Claude hooks. Cursor auto-loads them and mishandles `ask`, which can let dangerous commands run without approval. Details: [docs/CURSOR.md](https://github.com/ashleydavis/expressive-permissions/blob/main/docs/CURSOR.md).
+
 ## Installation
 
 ```

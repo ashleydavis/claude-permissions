@@ -101,6 +101,12 @@ This plugin simulates `cd` and environment-variable assignments as it walks the 
 
 This plugin runs its hooks and MCP server with [Node.js](https://nodejs.org). Node.js must be installed and on your `PATH` before you install the plugin. If Node.js is missing, the plugin's hooks fail and tool calls are not intercepted. (Bun is only needed if you want to build the plugin from source; see the [development guide](docs/DEVELOPMENT.md).)
 
+### Cursor users (required)
+
+Do not use this plugin under Cursor. Cursor auto-loads Claude Code hooks and mishandles `ask`, which can let dangerous commands (for example `git commit`) run without a real approval prompt.
+
+In **Cursor Settings → Rules, Skills, Subagents**, disable **Include third-party Plugins, Skills, and other configs** so Cursor does not load these hooks. Keep the Claude hooks in place for Claude Code. Details: [docs/CURSOR.md](docs/CURSOR.md).
+
 ## Installation
 
 ```
@@ -234,6 +240,7 @@ See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for the full guide.
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) - Instructions on cloning, building, and running the plugin locally.
 - [docs/TESTING.md](docs/TESTING.md) - Unit tests and smoke tests.
 - [docs/PUBLISHING.md](docs/PUBLISHING.md) - Packaging, marketplace release, and CI.
+- [docs/CURSOR.md](docs/CURSOR.md) - Disable this plugin in Cursor (Cursor auto-loads Claude hooks, mishandles `ask`, and can auto-allow dangerous commands).
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) - Troubleshooting rules: pending approval files, audit log, interactive REPL, and MCP server.
 - [docs/REPL.md](docs/REPL.md) - Interactive REPL for testing commands against your `permissions.yaml`.
 - [docs/MCP-SERVER.md](docs/MCP-SERVER.md) - MCP server that lets Claude explain permission decisions in natural language.

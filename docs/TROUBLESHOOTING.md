@@ -6,6 +6,7 @@ This doc explains how to debug why a command was allowed, denied, or asked.
 - [Finding tool calls that no rule matched](#finding-tool-calls-that-no-rule-matched)
 - [My rule isn't matching: what should I check?](#my-rule-isnt-matching-what-should-i-check)
 - [Confirming the config is loaded](#confirming-the-config-is-loaded)
+- [Cursor is running dangerous commands without prompting](#cursor-is-running-dangerous-commands-without-prompting)
 - [Pending approval files](#pending-approval-files)
 - [Audit log](#audit-log)
 - [Permission REPL](#permission-repl)
@@ -61,6 +62,14 @@ Each `permissions.yaml` load is recorded as a `CONFIG` line at the top of every 
 If no `CONFIG` line appears for the file you edited, the path is wrong or the hook has not run since the edit. Malformed YAML or unknown fields cause the hook to fail with an error on stderr rather than silently dropping rules.
 
 For more on log entry types, see [AUDIT-LOG.md](AUDIT-LOG.md).
+
+## Cursor is running dangerous commands without prompting
+
+If Cursor executes commands this plugin would normally `ask` about (for example `git commit`) without a real approval step, Cursor is almost certainly loading the Claude `PreToolUse` hooks and mishandling `ask`.
+
+In **Cursor Settings → Rules, Skills, Subagents**, disable **Include third-party Plugins, Skills, and other configs**, then reload the window. Do not remove the Claude hooks; Claude Code still needs them.
+
+See [CURSOR.md](CURSOR.md): use Cursor with this plugin's Claude hooks disabled via that setting.
 
 ## Pending approval files
 
