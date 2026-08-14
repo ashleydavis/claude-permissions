@@ -6,7 +6,7 @@ This is a plugin for Claude Code to handle permissions. You delegate all of Clau
 
 Read the full documentation at [https://ashleydavis.github.io/expressive-permissions/](https://ashleydavis.github.io/expressive-permissions/).
 
-See comprehensive examples of permissions configuration in [my personal Claude Code config repo](https://github.com/ashleydavis/claude-config/tree/main/home/.claude/permissions.d).
+See comprehensive examples of permissions configuration in [my personal Claude Code config repo](https://github.com/ashleydavis/agent-config/tree/main/home/.claude/permissions.d).
 
 This gives you permissions that work, even when:
 - Commands are embedded in a pipeline in a variable order.
