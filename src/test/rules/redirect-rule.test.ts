@@ -1,6 +1,7 @@
 import { RedirectInOrderedRule, RedirectOutOrderedRule } from "../../rules/redirect-rule";
 import { CommandAstNode } from "../../ast-nodes/command-ast-node";
 import { RedirectAstNode } from "../../ast-nodes/redirect-ast-node";
+import { TargetAstNode } from "../../ast-nodes/target-ast-node";
 
 describe("RedirectOutOrderedRule", () => {
 
@@ -8,7 +9,7 @@ describe("RedirectOutOrderedRule", () => {
 
     const echoCommand = new CommandAstNode("echo", {}, ["hi"], {}, "echo hi");
 
-    const redirectNode = new RedirectAstNode(">", "/tmp/out.txt", { command: echoCommand }, "echo hi > /tmp/out.txt");
+    const redirectNode = new RedirectAstNode(">", { left: echoCommand, right: new TargetAstNode("/tmp/out.txt", "/tmp/out.txt") }, "echo hi > /tmp/out.txt");
 
     test("returns allow when redirect target matches path-in (bash-redirect-out-tmp-allow)", async () => {
         const rule = new RedirectOutOrderedRule([
@@ -26,7 +27,7 @@ describe("RedirectOutOrderedRule", () => {
     });
 
     test("returns allow when relative redirect target resolves under project dir (bash-redirect-out-project-allow)", async () => {
-        const projectRedirectNode = new RedirectAstNode(">", "./logs/out.txt", { command: echoCommand }, "echo hi > ./logs/out.txt");
+        const projectRedirectNode = new RedirectAstNode(">", { left: echoCommand, right: new TargetAstNode("./logs/out.txt", "./logs/out.txt") }, "echo hi > ./logs/out.txt");
         const rule = new RedirectOutOrderedRule([
             {
                 pathIn: ["./**"],
@@ -42,7 +43,7 @@ describe("RedirectOutOrderedRule", () => {
     });
 
     test("returns deny when redirect target matches path before later allow (bash-redirect-out-deny-wins)", async () => {
-        const denyRedirectNode = new RedirectAstNode(">", "/etc/shadow", { command: echoCommand }, "echo hi > /etc/shadow");
+        const denyRedirectNode = new RedirectAstNode(">", { left: echoCommand, right: new TargetAstNode("/etc/shadow", "/etc/shadow") }, "echo hi > /etc/shadow");
         const rule = new RedirectOutOrderedRule([
             {
                 pathIn: ["/etc/**"],
@@ -62,7 +63,7 @@ describe("RedirectOutOrderedRule", () => {
     });
 
     test("returns ask when redirect target does not match path-in and catch-all fires (bash-redirect-out-outside-ask)", async () => {
-        const outsideRedirectNode = new RedirectAstNode(">", "/etc/passwd", { command: echoCommand }, "echo hi > /etc/passwd");
+        const outsideRedirectNode = new RedirectAstNode(">", { left: echoCommand, right: new TargetAstNode("/etc/passwd", "/etc/passwd") }, "echo hi > /etc/passwd");
         const rule = new RedirectOutOrderedRule([
             {
                 pathIn: ["/tmp/**", "./**"],
@@ -82,7 +83,7 @@ describe("RedirectOutOrderedRule", () => {
     });
 
     test("abstains when redirect op is fd merge (bash-redirect-fd-merge-ignored)", async () => {
-        const fdMergeRedirectNode = new RedirectAstNode("2>&", "1", { command: echoCommand }, "echo hi 2>&1");
+        const fdMergeRedirectNode = new RedirectAstNode("2>&", { left: echoCommand, right: new TargetAstNode("1", "1") }, "echo hi 2>&1");
         const rule = new RedirectOutOrderedRule([
             {
                 pathIn: ["/tmp/**"],
@@ -99,7 +100,7 @@ describe("RedirectOutOrderedRule", () => {
 
     test("returns allow for file redirect target when fd merge is separate node (bash-redirect-fd-merge-ignored)", async () => {
         const cmdCommand = new CommandAstNode("cmd", {}, [], {}, "cmd");
-        const fileRedirectNode = new RedirectAstNode(">", "/tmp/out", { command: cmdCommand }, "cmd > /tmp/out");
+        const fileRedirectNode = new RedirectAstNode(">", { left: cmdCommand, right: new TargetAstNode("/tmp/out", "/tmp/out") }, "cmd > /tmp/out");
         const rule = new RedirectOutOrderedRule([
             {
                 pathIn: ["/tmp/**"],
@@ -133,7 +134,7 @@ describe("RedirectInOrderedRule", () => {
     const catCommand = new CommandAstNode("cat", {}, [], {}, "cat");
 
     test("returns allow when redirect target matches path-in under project dir (bash-redirect-in-project-allow)", async () => {
-        const redirectNode = new RedirectAstNode("<", "./file.txt", { command: catCommand }, "cat < ./file.txt");
+        const redirectNode = new RedirectAstNode("<", { left: catCommand, right: new TargetAstNode("./file.txt", "./file.txt") }, "cat < ./file.txt");
         const rule = new RedirectInOrderedRule([
             {
                 pathIn: ["./**"],
@@ -149,7 +150,7 @@ describe("RedirectInOrderedRule", () => {
     });
 
     test("abstains when redirect op is not an input redirect", async () => {
-        const redirectNode = new RedirectAstNode(">", "./file.txt", { command: catCommand }, "cat > ./file.txt");
+        const redirectNode = new RedirectAstNode(">", { left: catCommand, right: new TargetAstNode("./file.txt", "./file.txt") }, "cat > ./file.txt");
         const rule = new RedirectInOrderedRule([
             {
                 pathIn: ["./**"],

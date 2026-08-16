@@ -22,7 +22,7 @@ ast:
           type: redirect
           source: echo hi > out.txt
           children:
-            command:
+            left:
               type: command
               source: echo hi > out.txt
               commandName: echo
@@ -30,6 +30,9 @@ ast:
               positionals:
                 - hi
               envPrefix: {}
+            right:
+              type: target
+              source: out.txt
+              path: out.txt
           op: ">"
-          target: out.txt
       op: "&&"

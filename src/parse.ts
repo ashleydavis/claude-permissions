@@ -6,6 +6,8 @@ import { CommandAstNode } from "./ast-nodes/command-ast-node";
 import { BashAstNode } from "./ast-nodes/bash-ast-node";
 import { BinopAstNode } from "./ast-nodes/binop-ast-node";
 import { RedirectAstNode } from "./ast-nodes/redirect-ast-node";
+import { HeredocAstNode } from "./ast-nodes/heredoc-ast-node";
+import { TargetAstNode } from "./ast-nodes/target-ast-node";
 import { BraceGroupAstNode } from "./ast-nodes/brace-group-ast-node";
 import { SubshellAstNode } from "./ast-nodes/subshell-ast-node";
 import { ForLoopAstNode } from "./ast-nodes/for-loop-ast-node";
@@ -866,6 +868,22 @@ export function readShellWord(tokenizer: ITokenizer, commandRegistry: Map<string
     return { value, substitution, endPos: prevEnd ?? 0 };
 }
 
+// Consumes the body token of a `<<` heredoc, when the lexer found one, and builds its node.
+export function parseHeredoc(tokenizer: ITokenizer, source: string, operatorStart: number, terminatorEnd: number, terminator: string, quoted: boolean): IAstNode {
+
+    let body = "";
+    let heredocEnd = terminatorEnd;
+
+    const bodyToken = tokenizer.peek();
+    if (bodyToken !== undefined && bodyToken.kind === BashTokenKind.HeredocBody) {
+        body = bodyToken.value;
+        heredocEnd = bodyToken.end;
+        tokenizer.next();
+    }
+
+    return new HeredocAstNode(terminator, quoted, body, source.slice(operatorStart, heredocEnd));
+}
+
 // Parses one command statement from the front of a token stream.
 export function parseStatement(tokenizer: ITokenizer, source: string, commandRegistry: Map<string, ICommandDescriptor>): IAstNode {
 
@@ -934,6 +952,7 @@ export function parseStatement(tokenizer: ITokenizer, source: string, commandReg
     }
 
     let node: IAstNode = commandNode;
+    let heredocSeen = false;
     while (tokenizer.peek()?.kind === BashTokenKind.Redirect) {
         const redirectToken = tokenizer.peek();
         if (redirectToken === undefined) {
@@ -942,17 +961,33 @@ export function parseStatement(tokenizer: ITokenizer, source: string, commandReg
         tokenizer.next();
         statementEnd = redirectToken.end;
         let target = "";
+        let targetStart = redirectToken.end;
+        let quotedTarget = false;
         const targetToken = tokenizer.peek();
         if (targetToken !== undefined && isWordTokenKind(targetToken.kind)) {
+            quotedTarget = targetToken.kind === BashTokenKind.SingleQuote || targetToken.kind === BashTokenKind.DoubleQuote;
+            targetStart = targetToken.start;
             const wordResult = readShellWord(tokenizer, commandRegistry);
             target = wordResult.value;
             statementEnd = wordResult.endPos;
         }
-        const redirectNode = new RedirectAstNode(redirectToken.value, target, { command: node }, source.slice(statementStart, statementEnd));
+
+        // The right operand of a heredoc is its body, which the lexer has already set aside as data.
+        if (redirectToken.value === "<<") {
+            const heredoc = parseHeredoc(tokenizer, source, redirectToken.start, statementEnd, target, quotedTarget);
+            statementEnd = redirectToken.start + heredoc.source.length;
+            node = new RedirectAstNode(redirectToken.value, { left: node, right: heredoc }, source.slice(statementStart, statementEnd));
+            heredocSeen = true;
+            continue;
+        }
+
+        const targetNode = new TargetAstNode(target, source.slice(targetStart, statementEnd));
+        const redirectNode = new RedirectAstNode(redirectToken.value, { left: node, right: targetNode }, source.slice(statementStart, statementEnd));
         node = redirectNode;
     }
 
-    if (node !== commandNode) {
+    // The heredoc body is input data rather than part of the command, so the command keeps its own source.
+    if (node !== commandNode && !heredocSeen) {
         let fullSource = source.slice(statementStart, statementEnd);
         if (tokenizer.peek() === undefined) {
             fullSource = source.slice(statementStart);

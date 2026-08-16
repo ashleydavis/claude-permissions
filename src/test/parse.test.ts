@@ -561,16 +561,20 @@ describe("parseBashExpression", () => {
         expect(parseBashExpression("cmd > out.log", new Map())).toEqual({
             type: "redirect",
             op: ">",
-            target: "out.log",
             source: "cmd > out.log",
             children: {
-                command: {
+                left: {
                     type: "command",
                     commandName: "cmd",
                     options: {},
                     positionals: [],
                     envPrefix: {},
                     source: "cmd > out.log",
+                },
+                right: {
+                    type: "target",
+                    path: "out.log",
+                    source: "out.log",
                 },
             },
         });
@@ -580,16 +584,20 @@ describe("parseBashExpression", () => {
         expect(parseBashExpression("echo foo > bar.txt", new Map())).toEqual({
             type: "redirect",
             op: ">",
-            target: "bar.txt",
             source: "echo foo > bar.txt",
             children: {
-                command: {
+                left: {
                     type: "command",
                     commandName: "echo",
                     options: {},
                     positionals: ["foo"],
                     envPrefix: {},
                     source: "echo foo > bar.txt",
+                },
+                right: {
+                    type: "target",
+                    path: "bar.txt",
+                    source: "bar.txt",
                 },
             },
         });
@@ -599,16 +607,20 @@ describe("parseBashExpression", () => {
         expect(parseBashExpression("echo foo >> bar.txt", new Map())).toEqual({
             type: "redirect",
             op: ">>",
-            target: "bar.txt",
             source: "echo foo >> bar.txt",
             children: {
-                command: {
+                left: {
                     type: "command",
                     commandName: "echo",
                     options: {},
                     positionals: ["foo"],
                     envPrefix: {},
                     source: "echo foo >> bar.txt",
+                },
+                right: {
+                    type: "target",
+                    path: "bar.txt",
+                    source: "bar.txt",
                 },
             },
         });
@@ -618,16 +630,20 @@ describe("parseBashExpression", () => {
         expect(parseBashExpression("cmd 2> err.log", new Map())).toEqual({
             type: "redirect",
             op: "2>",
-            target: "err.log",
             source: "cmd 2> err.log",
             children: {
-                command: {
+                left: {
                     type: "command",
                     commandName: "cmd",
                     options: {},
                     positionals: [],
                     envPrefix: {},
                     source: "cmd 2> err.log",
+                },
+                right: {
+                    type: "target",
+                    path: "err.log",
+                    source: "err.log",
                 },
             },
         });
@@ -637,16 +653,95 @@ describe("parseBashExpression", () => {
         expect(parseBashExpression("cat < in.txt", new Map())).toEqual({
             type: "redirect",
             op: "<",
-            target: "in.txt",
             source: "cat < in.txt",
             children: {
-                command: {
+                left: {
                     type: "command",
                     commandName: "cat",
                     options: {},
                     positionals: [],
                     envPrefix: {},
                     source: "cat < in.txt",
+                },
+                right: {
+                    type: "target",
+                    path: "in.txt",
+                    source: "in.txt",
+                },
+            },
+        });
+    });
+
+    test("parse quoted heredoc: body is data, not commands (redirect-heredoc-quoted-body)", () => {
+
+        // A quoted heredoc body is literal text that the shell never executes, so the only
+        // command in this call is "git". Today each body line is parsed as its own command
+        // node, so a commit message decides the verdict: every line is a NOMATCH, and the
+        // whole call falls through to the default even when git itself is allowed.
+        const collectCommandNames = (node: unknown): string[] => {
+
+            if (node === null || typeof node !== "object") {
+                return [];
+            }
+
+            const astNode = node as { type?: string; commandName?: string; children?: Record<string, unknown> };
+            const names = astNode.type === "command" && astNode.commandName !== undefined ? [astNode.commandName] : [];
+
+            for (const child of Object.values(astNode.children ?? {})) {
+                names.push(...collectCommandNames(child));
+            }
+
+            return names;
+        };
+
+        const command = "git commit -F - <<'EOF'\nLorem ipsum dolor sit amet\nEOF";
+
+        expect(collectCommandNames(parse(makeCall(command), new Map()))).toEqual(["git"]);
+    });
+
+    test("parse here-string: keeps the text as a redirect target, not a heredoc (redirect-here-string)", () => {
+        expect(parseBashExpression('cat <<<"hi"', new Map())).toEqual({
+            type: "redirect",
+            op: "<<<",
+            source: 'cat <<<"hi"',
+            children: {
+                left: {
+                    type: "command",
+                    commandName: "cat",
+                    options: {},
+                    positionals: [],
+                    envPrefix: {},
+                    source: 'cat <<<"hi"',
+                },
+                right: {
+                    type: "target",
+                    path: "hi",
+                    source: '"hi"',
+                },
+            },
+        });
+    });
+
+    test("parse unquoted heredoc: hangs terminator and body off the redirect (redirect-heredoc-body)", () => {
+        expect(parseBashExpression("cat <<EOF\nline one\nEOF", new Map())).toEqual({
+            type: "redirect",
+            op: "<<",
+            source: "cat <<EOF\nline one\nEOF",
+            children: {
+                left: {
+                    type: "command",
+                    commandName: "cat",
+                    options: {},
+                    positionals: [],
+                    envPrefix: {},
+                    source: "cat",
+                },
+                right: {
+                    type: "heredoc",
+                    terminator: "EOF",
+                    quoted: false,
+                    body: "line one",
+                    source: "<<EOF\nline one\nEOF",
                 },
             },
         });
@@ -656,16 +751,14 @@ describe("parseBashExpression", () => {
         expect(parseBashExpression("cmd > out.log 2>&1", new Map())).toEqual({
             type: "redirect",
             op: "2>&",
-            target: "1",
             source: "cmd > out.log 2>&1",
             children: {
-                command: {
+                left: {
                     type: "redirect",
                     op: ">",
-                    target: "out.log",
                     source: "cmd > out.log",
                     children: {
-                        command: {
+                        left: {
                             type: "command",
                             commandName: "cmd",
                             options: {},
@@ -673,7 +766,17 @@ describe("parseBashExpression", () => {
                             envPrefix: {},
                             source: "cmd > out.log 2>&1",
                         },
+                        right: {
+                            type: "target",
+                            path: "out.log",
+                            source: "out.log",
+                        },
                     },
+                },
+                right: {
+                    type: "target",
+                    path: "1",
+                    source: "1",
                 },
             },
         });
@@ -696,16 +799,20 @@ describe("parseBashExpression", () => {
                 right: {
                     type: "redirect",
                     op: ">",
-                    target: "out.txt",
                     source: "echo hi > out.txt",
                     children: {
-                        command: {
+                        left: {
                             type: "command",
                             commandName: "echo",
                             options: {},
                             positionals: ["hi"],
                             envPrefix: {},
                             source: "echo hi > out.txt",
+                        },
+                        right: {
+                            type: "target",
+                            path: "out.txt",
+                            source: "out.txt",
                         },
                     },
                 },
@@ -2274,16 +2381,20 @@ describe("parseStatement", () => {
         expect(parseStatement(tokenizer, source, new Map())).toEqual({
             type: "redirect",
             op: ">",
-            target: "out.log",
             source: "cmd > out.log",
             children: {
-                command: {
+                left: {
                     type: "command",
                     commandName: "cmd",
                     options: {},
                     positionals: [],
                     envPrefix: {},
                     source: "cmd > out.log",
+                },
+                right: {
+                    type: "target",
+                    path: "out.log",
+                    source: "out.log",
                 },
             },
         });
@@ -2295,16 +2406,20 @@ describe("parseStatement", () => {
         expect(parseStatement(tokenizer, source, new Map())).toEqual({
             type: "redirect",
             op: ">",
-            target: "bar.txt",
             source: "echo foo > bar.txt",
             children: {
-                command: {
+                left: {
                     type: "command",
                     commandName: "echo",
                     options: {},
                     positionals: ["foo"],
                     envPrefix: {},
                     source: "echo foo > bar.txt",
+                },
+                right: {
+                    type: "target",
+                    path: "bar.txt",
+                    source: "bar.txt",
                 },
             },
         });

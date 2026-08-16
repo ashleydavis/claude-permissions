@@ -10,7 +10,7 @@ ast:
       type: redirect
       source: echo foo > bar.txt
       children:
-        command:
+        left:
           type: command
           source: echo foo > bar.txt
           commandName: echo
@@ -18,5 +18,8 @@ ast:
           positionals:
             - foo
           envPrefix: {}
+        right:
+          type: target
+          source: bar.txt
+          path: bar.txt
       op: ">"
-      target: bar.txt

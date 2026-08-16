@@ -1,4 +1,5 @@
 import { RedirectAstNode } from "../../ast-nodes/redirect-ast-node";
+import { TargetAstNode } from "../../ast-nodes/target-ast-node";
 import { NullAuditLogger } from "../../audit-log";
 import { AstNode } from "../../ast-nodes/ast-node";
 import { IAstNode } from "../../ast";
@@ -25,18 +26,19 @@ class RecordRule implements IRule {
 
 describe("RedirectAstNode", () => {
 
-    test("stores type, operator, target, and children", () => {
+    test("stores type, operator, and operands", () => {
         const command = new AstNode("command", "command");
-        const node = new RedirectAstNode(">", "out.txt", { command }, "command > out.txt");
+        const target = new TargetAstNode("out.txt", "out.txt");
+        const node = new RedirectAstNode(">", { left: command, right: target }, "command > out.txt");
         expect(node.type).toBe("redirect");
         expect(node.op).toBe(">");
-        expect(node.target).toBe("out.txt");
-        expect(node.children).toEqual({ command });
+        expect(node.children).toEqual({ left: command, right: target });
     });
 
     test("evaluates its wrapped command before itself", async () => {
         const command = new AstNode("command", "command");
-        const node = new RedirectAstNode(">", "out.txt", { command }, "command > out.txt");
+        const target = new TargetAstNode("out.txt", "out.txt");
+        const node = new RedirectAstNode(">", { left: command, right: target }, "command > out.txt");
         const seen: string[] = [];
         await node.evaluate([new RecordRule(seen)], baseContext, new NullAuditLogger());
         expect(seen).toEqual(["command", "redirect"]);

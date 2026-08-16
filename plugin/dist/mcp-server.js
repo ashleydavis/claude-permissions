@@ -24446,7 +24446,7 @@ class RedirectOutOrderedRule {
       return false;
     }
     if (entry.pathIn.length > 0) {
-      let target = redirectNode.target;
+      let target = redirectNode.children.right.path;
       if (!target.startsWith("/")) {
         target = resolve3(context.cwd, target);
       }
@@ -24506,7 +24506,7 @@ class RedirectInOrderedRule {
       return false;
     }
     if (entry.pathIn.length > 0) {
-      let target = redirectNode.target;
+      let target = redirectNode.children.right.path;
       if (!target.startsWith("/")) {
         target = resolve3(context.cwd, target);
       }
@@ -24977,13 +24977,43 @@ class BinopAstNode extends AstNode {
 class RedirectAstNode extends AstNode {
   type = "redirect";
   op;
-  target;
   children;
-  constructor(op, target, children, source) {
+  constructor(op, children, source) {
     super("redirect", source);
     this.op = op;
-    this.target = target;
     this.children = children;
+  }
+}
+
+// src/ast-nodes/heredoc-ast-node.ts
+class HeredocAstNode extends AstNode {
+  terminator;
+  quoted;
+  body;
+  constructor(terminator, quoted, body, source) {
+    super("heredoc", source);
+    this.terminator = terminator;
+    this.quoted = quoted;
+    this.body = body;
+  }
+  async evaluate(rules, context, logger) {
+    if (this.quoted) {
+      return { context };
+    }
+    return super.evaluate(rules, context, logger);
+  }
+}
+
+// src/ast-nodes/target-ast-node.ts
+class TargetAstNode extends AstNode {
+  type = "target";
+  path;
+  constructor(path, source) {
+    super("target", source);
+    this.path = path;
+  }
+  async evaluate(rules, context, logger) {
+    return { context };
   }
 }
 
@@ -25168,7 +25198,7 @@ class XargsAstNode extends AstNode {
 }
 
 // src/tokenizer.ts
-var REDIRECT_OPERATORS = ["2>&", ">>", "&>", "2>", ">", "<"];
+var REDIRECT_OPERATORS = ["2>&", ">>", "&>", "2>", ">", "<<<", "<<", "<"];
 var BASH_OPERATOR_KINDS = [
   "&&" /* And */,
   "||" /* Or */,
@@ -25220,15 +25250,64 @@ class Tokenizer {
     }
     return "word" /* Word */;
   }
+  static readHeredocTerminator(tokens, operatorIndex) {
+    let terminator = "";
+    let wordEnd = undefined;
+    for (let tokenIndex = operatorIndex + 1;tokenIndex < tokens.length; tokenIndex++) {
+      const token = tokens[tokenIndex];
+      if (wordEnd !== undefined && token.start !== wordEnd) {
+        break;
+      }
+      if (token.kind === "word" /* Word */) {
+        terminator += token.value;
+      } else if (token.kind !== "'" /* SingleQuote */ && token.kind !== '"' /* DoubleQuote */) {
+        break;
+      }
+      wordEnd = token.end;
+    }
+    return terminator;
+  }
+  static readHeredocBody(input, bodyStart, terminator) {
+    const bodyLines = [];
+    let pos = bodyStart;
+    let bodyEnd = bodyStart;
+    while (pos < input.length) {
+      let lineEnd = input.indexOf(`
+`, pos);
+      if (lineEnd === -1) {
+        lineEnd = input.length;
+      }
+      const line = input.slice(pos, lineEnd);
+      if (line === terminator) {
+        return { kind: "heredoc_body" /* HeredocBody */, value: bodyLines.join(`
+`), start: bodyStart, end: lineEnd };
+      }
+      bodyLines.push(line);
+      bodyEnd = lineEnd;
+      pos = lineEnd + 1;
+    }
+    return { kind: "heredoc_body" /* HeredocBody */, value: bodyLines.join(`
+`), start: bodyStart, end: bodyEnd };
+  }
   static lexInput(input) {
     const tokens = [];
     let pos = 0;
     let atWordBoundary = true;
+    let heredocOperatorIndex = undefined;
     while (pos < input.length) {
       if (input[pos] === `
 ` || input[pos] === "\r") {
         const separatorStart = pos;
         pos++;
+        if (heredocOperatorIndex !== undefined) {
+          const terminator = Tokenizer.readHeredocTerminator(tokens, heredocOperatorIndex);
+          heredocOperatorIndex = undefined;
+          const bodyToken = Tokenizer.readHeredocBody(input, pos, terminator);
+          tokens.push(bodyToken);
+          pos = bodyToken.end;
+          atWordBoundary = true;
+          continue;
+        }
         tokens.push({ kind: ";" /* Semicolon */, value: ";" /* Semicolon */, start: separatorStart, end: pos });
         atWordBoundary = true;
         continue;
@@ -25255,6 +25334,9 @@ class Tokenizer {
       if (matchedRedirect !== undefined) {
         const redirectStart = pos;
         pos += matchedRedirect.length;
+        if (matchedRedirect === "<<") {
+          heredocOperatorIndex = tokens.length;
+        }
         tokens.push({ kind: "redirect" /* Redirect */, value: matchedRedirect, start: redirectStart, end: pos });
         atWordBoundary = true;
         continue;
@@ -26008,6 +26090,17 @@ function readShellWord(tokenizer, commandRegistry) {
   }
   return { value, substitution, endPos: prevEnd ?? 0 };
 }
+function parseHeredoc(tokenizer, source, operatorStart, terminatorEnd, terminator, quoted) {
+  let body = "";
+  let heredocEnd = terminatorEnd;
+  const bodyToken = tokenizer.peek();
+  if (bodyToken !== undefined && bodyToken.kind === "heredoc_body" /* HeredocBody */) {
+    body = bodyToken.value;
+    heredocEnd = bodyToken.end;
+    tokenizer.next();
+  }
+  return new HeredocAstNode(terminator, quoted, body, source.slice(operatorStart, heredocEnd));
+}
 function parseStatement(tokenizer, source, commandRegistry) {
   const firstToken = tokenizer.peek();
   if (firstToken !== undefined && firstToken.kind === "for" /* For */) {
@@ -26059,6 +26152,7 @@ function parseStatement(tokenizer, source, commandRegistry) {
     commandNode.children = { substitution };
   }
   let node = commandNode;
+  let heredocSeen = false;
   while (tokenizer.peek()?.kind === "redirect" /* Redirect */) {
     const redirectToken = tokenizer.peek();
     if (redirectToken === undefined) {
@@ -26067,16 +26161,28 @@ function parseStatement(tokenizer, source, commandRegistry) {
     tokenizer.next();
     statementEnd = redirectToken.end;
     let target = "";
+    let targetStart = redirectToken.end;
+    let quotedTarget = false;
     const targetToken = tokenizer.peek();
     if (targetToken !== undefined && isWordTokenKind(targetToken.kind)) {
+      quotedTarget = targetToken.kind === "'" /* SingleQuote */ || targetToken.kind === '"' /* DoubleQuote */;
+      targetStart = targetToken.start;
       const wordResult = readShellWord(tokenizer, commandRegistry);
       target = wordResult.value;
       statementEnd = wordResult.endPos;
     }
-    const redirectNode = new RedirectAstNode(redirectToken.value, target, { command: node }, source.slice(statementStart, statementEnd));
+    if (redirectToken.value === "<<") {
+      const heredoc = parseHeredoc(tokenizer, source, redirectToken.start, statementEnd, target, quotedTarget);
+      statementEnd = redirectToken.start + heredoc.source.length;
+      node = new RedirectAstNode(redirectToken.value, { left: node, right: heredoc }, source.slice(statementStart, statementEnd));
+      heredocSeen = true;
+      continue;
+    }
+    const targetNode = new TargetAstNode(target, source.slice(targetStart, statementEnd));
+    const redirectNode = new RedirectAstNode(redirectToken.value, { left: node, right: targetNode }, source.slice(statementStart, statementEnd));
     node = redirectNode;
   }
-  if (node !== commandNode) {
+  if (node !== commandNode && !heredocSeen) {
     let fullSource = source.slice(statementStart, statementEnd);
     if (tokenizer.peek() === undefined) {
       fullSource = source.slice(statementStart);

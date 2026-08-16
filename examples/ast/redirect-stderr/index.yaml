@@ -10,12 +10,15 @@ ast:
       type: redirect
       source: cmd 2> err.log
       children:
-        command:
+        left:
           type: command
           source: cmd 2> err.log
           commandName: cmd
           options: {}
           positionals: []
           envPrefix: {}
+        right:
+          type: target
+          source: err.log
+          path: err.log
       op: 2>
-      target: err.log

@@ -901,6 +901,8 @@ Rules can match on the redirect operator and the resolved file path. Within `red
 
 **Fd merges** such as `2>&1` redirect to a file descriptor number (for example `"1"`), not a file path. Redirect path matchers ignore fd merges; only file-path targets are checked.
 
+**Heredocs** (`<<EOF`) feed the command literal text instead of a file, so redirect path matchers ignore them too. The body is not parsed as commands: with a quoted terminator (`<<'EOF'`) the shell never expands it, so it decides nothing and the verdict comes from the command itself. With an unquoted terminator the shell still expands the body, so it asks unless a rule allows it.
+
 ### Global `redirect:` section
 
 Add a top-level `redirect:` section with `out:` and `in:` subsections. Each subsection accepts a single rule object or a list of rules (same list semantics as `write:` or `read:`). Use `path` and `path-in` to match redirect file targets: the same fields as file-tool rules. Direction comes from the subsection (`redirect.out` for write redirects, `redirect.in` for read redirects).
@@ -949,7 +951,7 @@ redirect:
       reason: Shell write outside allowed dirs
 ```
 
-How redirects interact with `bash:` rules (and how decisions combine) is covered in [HOW_IT_WORKS.md](HOW_IT_WORKS.md#how-redirects-appear-in-the-ast).
+How redirects interact with `bash:` rules (and how decisions combine) is covered in [HOW_IT_WORKS.md](HOW_IT_WORKS.md#tool-call--ast).
 
 ### Examples
 

@@ -173,6 +173,51 @@ describe("Tokenizer", () => {
             ]);
         });
 
+        test("lex heredoc redirect: produces << redirect token (redirect-heredoc)", () => {
+
+            // << is the heredoc operator in its own right, not two < redirects. REDIRECT_OPERATORS
+            // lists longer alternatives first so >> is matched before >, but it has no << at all,
+            // so << currently matches < twice and the heredoc body is left as ordinary input.
+            expect(collectAllTokens("cat <<EOF")).toEqual([
+                { kind: BashTokenKind.Word, value: "cat", start: 0, end: 3 },
+                { kind: BashTokenKind.Redirect, value: "<<", start: 4, end: 6 },
+                { kind: BashTokenKind.Word, value: "EOF", start: 6, end: 9 },
+            ]);
+        });
+
+        test("lex here-string redirect: produces <<< redirect token (redirect-here-string)", () => {
+            expect(collectAllTokens('cat <<<"hi"')).toEqual([
+                { kind: BashTokenKind.Word, value: "cat", start: 0, end: 3 },
+                { kind: BashTokenKind.Redirect, value: "<<<", start: 4, end: 7 },
+                { kind: BashTokenKind.DoubleQuote, value: "\"", start: 7, end: 8 },
+                { kind: BashTokenKind.Word, value: "hi", start: 8, end: 10 },
+                { kind: BashTokenKind.DoubleQuote, value: "\"", start: 10, end: 11 },
+            ]);
+        });
+
+        test("lex heredoc body: consumes body and terminator line as one token (redirect-heredoc-body)", () => {
+            expect(collectAllTokens("cat <<EOF\nline one\nEOF\necho hi")).toEqual([
+                { kind: BashTokenKind.Word, value: "cat", start: 0, end: 3 },
+                { kind: BashTokenKind.Redirect, value: "<<", start: 4, end: 6 },
+                { kind: BashTokenKind.Word, value: "EOF", start: 6, end: 9 },
+                { kind: BashTokenKind.HeredocBody, value: "line one", start: 10, end: 22 },
+                { kind: BashTokenKind.Semicolon, value: ";", start: 22, end: 23 },
+                { kind: BashTokenKind.Word, value: "echo", start: 23, end: 27 },
+                { kind: BashTokenKind.Word, value: "hi", start: 28, end: 30 },
+            ]);
+        });
+
+        test("lex quoted heredoc body: terminator quotes do not end the body early (redirect-heredoc-quoted)", () => {
+            expect(collectAllTokens("cat <<'EOF'\nbody\nEOF")).toEqual([
+                { kind: BashTokenKind.Word, value: "cat", start: 0, end: 3 },
+                { kind: BashTokenKind.Redirect, value: "<<", start: 4, end: 6 },
+                { kind: BashTokenKind.SingleQuote, value: "'", start: 6, end: 7 },
+                { kind: BashTokenKind.Word, value: "EOF", start: 7, end: 10 },
+                { kind: BashTokenKind.SingleQuote, value: "'", start: 10, end: 11 },
+                { kind: BashTokenKind.HeredocBody, value: "body", start: 12, end: 20 },
+            ]);
+        });
+
         test("lex carriage return newline: normalizes CRLF to semicolon op (crlf-separator)", () => {
             expect(collectAllTokens("echo a\r\necho b")).toEqual([
                 { kind: BashTokenKind.Word, value: "echo", start: 0, end: 4 },

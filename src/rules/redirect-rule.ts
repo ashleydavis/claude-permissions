@@ -2,6 +2,7 @@ import picomatch from "picomatch";
 import { resolve } from "path";
 import { IAstNode } from "../ast";
 import { IRedirectNode } from "../ast-nodes/redirect-ast-node";
+import { ITargetNode } from "../ast-nodes/target-ast-node";
 import { IRedirectConfig, IRedirectEntry } from "../config";
 import { IContext } from "../context";
 import { IDecision, IRule, IRuleEvaluation, IRuleFactory, ISourceLocation } from "./rule";
@@ -59,7 +60,7 @@ export class RedirectOutOrderedRule implements IRule {
         }
 
         if (entry.pathIn.length > 0) {
-            let target = redirectNode.target;
+            let target = (redirectNode.children.right as ITargetNode).path;
 
             if (!target.startsWith("/")) {
                 target = resolve(context.cwd, target);
@@ -162,7 +163,7 @@ export class RedirectInOrderedRule implements IRule {
         }
 
         if (entry.pathIn.length > 0) {
-            let target = redirectNode.target;
+            let target = (redirectNode.children.right as ITargetNode).path;
 
             if (!target.startsWith("/")) {
                 target = resolve(context.cwd, target);

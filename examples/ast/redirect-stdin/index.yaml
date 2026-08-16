@@ -10,12 +10,15 @@ ast:
       type: redirect
       source: cat < in.txt
       children:
-        command:
+        left:
           type: command
           source: cat < in.txt
           commandName: cat
           options: {}
           positionals: []
           envPrefix: {}
+        right:
+          type: target
+          source: in.txt
+          path: in.txt
       op: <
-      target: in.txt

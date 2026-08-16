@@ -30,11 +30,11 @@ ast:
                   type: redirect
                   source: diff -q variant-1a/$f variant-2/$f >/dev/null 2>&1
                   children:
-                    command:
+                    left:
                       type: redirect
                       source: diff -q variant-1a/$f variant-2/$f >/dev/null
                       children:
-                        command:
+                        left:
                           type: command
                           source: diff -q variant-1a/$f variant-2/$f >/dev/null 2>&1
                           commandName: diff
@@ -44,10 +44,16 @@ ast:
                             - variant-1a/$f
                             - variant-2/$f
                           envPrefix: {}
+                        right:
+                          type: target
+                          source: /dev/null
+                          path: /dev/null
                       op: ">"
-                      target: /dev/null
+                    right:
+                      type: target
+                      source: "1"
+                      path: "1"
                   op: 2>&
-                  target: "1"
                 thenBranch:
                   type: command
                   source: 'echo "SAME (1a==2): $f"'

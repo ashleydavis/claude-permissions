@@ -19,6 +19,9 @@ export enum BashTokenKind {
     // I/O redirect operator token (>, >>, <, 2>, etc.); value holds the operator string.
     Redirect = "redirect",
 
+    // Heredoc body text following a << operator; value holds the body without its terminator line.
+    HeredocBody = "heredoc_body",
+
     // Logical and (&&).
     And = "&&",
 
@@ -116,7 +119,7 @@ export interface ITokenizer {
 }
 
 // Redirect operator token strings (longer alternatives first).
-const REDIRECT_OPERATORS = ["2>&", ">>", "&>", "2>", ">", "<"];
+const REDIRECT_OPERATORS = ["2>&", ">>", "&>", "2>", ">", "<<<", "<<", "<"];
 
 // Shell control operator kinds (longer lexemes first).
 const BASH_OPERATOR_KINDS = [
@@ -190,17 +193,83 @@ export class Tokenizer implements ITokenizer {
         return BashTokenKind.Word;
     }
 
+    // Rebuilds the heredoc terminator word from the tokens lexed after a << operator.
+    private static readHeredocTerminator(tokens: IBashToken[], operatorIndex: number): string {
+
+        let terminator = "";
+        let wordEnd: number | undefined = undefined;
+
+        for (let tokenIndex = operatorIndex + 1; tokenIndex < tokens.length; tokenIndex++) {
+            const token = tokens[tokenIndex];
+
+            // A gap between tokens ends the terminator word; leading spaces before it are allowed.
+            if (wordEnd !== undefined && token.start !== wordEnd) {
+                break;
+            }
+
+            if (token.kind === BashTokenKind.Word) {
+                terminator += token.value;
+            }
+            else if (token.kind !== BashTokenKind.SingleQuote && token.kind !== BashTokenKind.DoubleQuote) {
+                break;
+            }
+
+            wordEnd = token.end;
+        }
+
+        return terminator;
+    }
+
+    // Reads the heredoc body that starts after the operator line, ending at the terminator line or at end of input.
+    private static readHeredocBody(input: string, bodyStart: number, terminator: string): IBashToken {
+
+        const bodyLines: string[] = [];
+        let pos = bodyStart;
+        let bodyEnd = bodyStart;
+
+        while (pos < input.length) {
+            let lineEnd = input.indexOf("\n", pos);
+            if (lineEnd === -1) {
+                lineEnd = input.length;
+            }
+
+            const line = input.slice(pos, lineEnd);
+            if (line === terminator) {
+                return { kind: BashTokenKind.HeredocBody, value: bodyLines.join("\n"), start: bodyStart, end: lineEnd };
+            }
+
+            bodyLines.push(line);
+            bodyEnd = lineEnd;
+            pos = lineEnd + 1;
+        }
+
+        return { kind: BashTokenKind.HeredocBody, value: bodyLines.join("\n"), start: bodyStart, end: bodyEnd };
+    }
+
     // Tokenizes a bash command string into word and operator tokens.
     private static lexInput(input: string): IBashToken[] {
 
         const tokens: IBashToken[] = [];
         let pos = 0;
         let atWordBoundary = true;
+        let heredocOperatorIndex: number | undefined = undefined;
 
         while (pos < input.length) {
             if (input[pos] === "\n" || input[pos] === "\r") {
                 const separatorStart = pos;
                 pos++;
+
+                // The newline after a << operator starts the heredoc body, which is input data rather than commands.
+                if (heredocOperatorIndex !== undefined) {
+                    const terminator = Tokenizer.readHeredocTerminator(tokens, heredocOperatorIndex);
+                    heredocOperatorIndex = undefined;
+                    const bodyToken = Tokenizer.readHeredocBody(input, pos, terminator);
+                    tokens.push(bodyToken);
+                    pos = bodyToken.end;
+                    atWordBoundary = true;
+                    continue;
+                }
+
                 tokens.push({ kind: BashTokenKind.Semicolon, value: BashTokenKind.Semicolon, start: separatorStart, end: pos });
                 atWordBoundary = true;
                 continue;
@@ -229,6 +298,9 @@ export class Tokenizer implements ITokenizer {
             if (matchedRedirect !== undefined) {
                 const redirectStart = pos;
                 pos += matchedRedirect.length;
+                if (matchedRedirect === "<<") {
+                    heredocOperatorIndex = tokens.length;
+                }
                 tokens.push({ kind: BashTokenKind.Redirect, value: matchedRedirect, start: redirectStart, end: pos });
                 atWordBoundary = true;
                 continue;

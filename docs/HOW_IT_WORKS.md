@@ -37,29 +37,9 @@ flowchart LR
 
 [`parse`](../src/parse.ts) dispatches on `tool_name` and builds a typed AST for each supported tool (Bash, Read, Write, Edit, Grep, WebFetch, Agent, and a fallback for everything else).
 
-Bash and Shell commands are tokenized and parsed into `command`, `binop`, `redirect`, `substitution`, `xargs`, and block nodes. [`parseToolCallToAst`](../src/analyze.ts) loads **command descriptors** from home and project `permissions.d/commands/` (project wins on conflict) so the parser knows flag arity and positional kinds before it runs.
+Bash and Shell commands are tokenized and parsed into `command`, `binop`, `redirect`, `target`, `heredoc`, `substitution`, `xargs`, and block nodes. [`parseToolCallToAst`](../src/analyze.ts) loads **command descriptors** from home and project `permissions.d/commands/` (project wins on conflict) so the parser knows flag arity and positional kinds before it runs.
 
-### How redirects appear in the AST
-
-Each shell redirect is a `redirect` node wrapping the inner command. Multiple redirects nest outward; the innermost redirect sits closest to the `command` node.
-
-```
-redirect  op: >
-├── command
-│   └── echo foo
-└── target: bar.txt
-```
-
-```
-redirect  op: 2>&
-├── redirect  op: >
-│   ├── command
-│   │   └── cmd
-│   └── target: out.log
-└── target: 1
-```
-
-Permission decisions on the inner `command` node, each `redirect` node, and parent compounds aggregate via strictest-wins as the walker moves up the tree. A `redirect.out` rule fires on the `redirect` node; a `bash.echo` rule fires on the inner `command` node inside the wrapper. YAML for those rules is in [CONFIGURATION.md](CONFIGURATION.md#redirect-path-rules).
+A `redirect` node applies its operator to two operands: the command on `left`, and on `right` either a `target` node holding the file path (or fd number) or, for `<<`, a `heredoc` node holding the terminator and body. `redirect.out` and `redirect.in` rules match the `redirect` node and read the path from its `target` child, which is why they need no `bash:` rule per command. See [CONFIGURATION.md](CONFIGURATION.md#redirect-path-rules).
 
 Block constructs include `for_loop`, `while_loop`, `if_statement`, `case_statement`, and `group` (subshell or brace).
 
@@ -84,15 +64,6 @@ graph TD
   Pipe --> Find["command<br/>commandName: find<br/>positionals: [.]"]
   Pipe --> Xargs["xargs"]
   Xargs --> Grep["command<br/>commandName: grep<br/>options: {l: true}"]
-```
-
-For `cd /etc && rm -rf /`:
-
-```mermaid
-graph TD
-  Bash["bash"] --> And["binop<br/>op: &&"]
-  And --> Cd["command<br/>commandName: cd<br/>positionals: [/etc]"]
-  And --> Rm["command<br/>commandName: rm<br/>options: { r: true, f: true }<br/>positionals: [/]"]
 ```
 
 Source files: [`src/parse.ts`](https://github.com/ashleydavis/expressive-permissions/blob/main/src/parse.ts), [`src/analyze.ts`](https://github.com/ashleydavis/expressive-permissions/blob/main/src/analyze.ts).
@@ -126,7 +97,7 @@ After children and own rules run:
 |---|---|
 | Any child is `deny` | That child `deny` (own rules cannot override) |
 | Otherwise | `pickStrictest(ownDecisions)` if any own decision, else strictest child decision |
-| Node with no decisions | `ask` |
+| Node with no decisions | `ask` (data nodes abstain: `target`, and `heredoc` with a quoted terminator) |
 
 Worked examples:
 

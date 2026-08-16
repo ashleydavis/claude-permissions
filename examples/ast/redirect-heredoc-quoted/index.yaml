@@ -1,0 +1,31 @@
+tool_call:
+  tool_name: Bash
+  tool_input:
+    command: |-
+      git commit -F - <<'EOF'
+      Lorem ipsum dolor sit amet
+      EOF
+ast:
+  type: bash
+  source: "git commit -F - <<'EOF'\nLorem ipsum dolor sit amet\nEOF"
+  children:
+    command:
+      type: redirect
+      op: "<<"
+      source: "git commit -F - <<'EOF'\nLorem ipsum dolor sit amet\nEOF"
+      children:
+        left:
+          type: command
+          commandName: git
+          options:
+            F: true
+          positionals:
+            - commit
+          envPrefix: {}
+          source: "git commit -F -"
+        right:
+          type: heredoc
+          terminator: "EOF"
+          quoted: true
+          body: "Lorem ipsum dolor sit amet"
+          source: "<<'EOF'\nLorem ipsum dolor sit amet\nEOF"

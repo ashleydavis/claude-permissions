@@ -1,0 +1,15 @@
+description: "bash: a quoted heredoc body is data, so an allowed git commit stays allowed"
+input:
+  tool_name: Bash
+  tool_input:
+    command: |-
+      git commit -F - <<'EOF'
+      Lorem ipsum dolor sit amet
+      EOF
+  cwd: /home/user/project
+rules:
+  bash:
+    git:
+      decide: allow
+expected:
+  decision: allow
