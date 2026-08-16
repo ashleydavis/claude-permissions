@@ -78,7 +78,7 @@ export class BashRule implements IRule {
         this.sourceLocation = sourceLocation;
     }
 
-    // Return the command node when the AST is a shell command for this rule.
+    // Return the invocation node when the AST is a shell command, or a wrapper running one, for this rule.
     evaluateCommand(ast: IAstNode): ICommandNode | undefined {
 
         if (ast.type !== "command") {

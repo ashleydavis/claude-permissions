@@ -2,7 +2,7 @@ import { readFile } from "fs/promises";
 import { join } from "path";
 import { parse as parseYaml } from "yaml";
 import { parse } from "../src/parse";
-import { ICommandDescriptor } from "../src/types";
+import { ICommandDescriptor, IPositionalDescriptor } from "../src/types";
 
 const PARSER_SET_GUARD_FILES = [
     join(import.meta.dir, "..", "src", "parse.ts"),
@@ -38,8 +38,15 @@ interface IRawFixtureFlag {
     arity: 0 | 1;
 }
 
+interface IRawFixturePositional {
+    variadic?: boolean;
+}
+
 interface IRawFixtureDescriptor {
     flags?: Record<string, IRawFixtureFlag>;
+    positionals?: IRawFixturePositional[];
+    cmds?: Record<string, IRawFixtureDescriptor>;
+    wrapper?: boolean;
 }
 
 interface IFixture {
@@ -48,25 +55,53 @@ interface IFixture {
     descriptors?: Record<string, IRawFixtureDescriptor>;
 }
 
+// descriptorFromFixture builds one command descriptor from a fixture descriptor entry.
+function descriptorFromFixture(commandName: string, rawDescriptor: IRawFixtureDescriptor): ICommandDescriptor {
+
+    const flags: Record<string, { arity: 0 | 1; kind: "string"; description: string }> = {};
+
+    if (rawDescriptor.flags !== undefined) {
+        for (const [flagName, rawFlag] of Object.entries(rawDescriptor.flags)) {
+            flags[flagName] = { arity: rawFlag.arity, kind: "string", description: "" };
+        }
+    }
+
+    const positionals: IPositionalDescriptor[] = [];
+
+    if (rawDescriptor.positionals !== undefined) {
+        for (const rawPositional of rawDescriptor.positionals) {
+            positionals.push({ kind: "string", description: "", variadic: rawPositional.variadic === true });
+        }
+    }
+
+    const descriptor: ICommandDescriptor = {
+        description: commandName,
+        positionals: positionals,
+        flags: flags,
+    };
+
+    if (rawDescriptor.cmds !== undefined) {
+        const cmds: Record<string, ICommandDescriptor> = {};
+        for (const [subCommandName, rawSubCommand] of Object.entries(rawDescriptor.cmds)) {
+            cmds[subCommandName] = descriptorFromFixture(subCommandName, rawSubCommand);
+        }
+        descriptor.cmds = cmds;
+    }
+
+    if (rawDescriptor.wrapper) {
+        descriptor.wrapper = true;
+    }
+
+    return descriptor;
+}
+
 // registryFromFixture builds a command registry from a fixture descriptors block.
 function registryFromFixture(fixtureDescriptors: Record<string, IRawFixtureDescriptor>): Map<string, ICommandDescriptor> {
 
     const registry: Map<string, ICommandDescriptor> = new Map();
 
     for (const [commandName, rawDescriptor] of Object.entries(fixtureDescriptors)) {
-        const flags: Record<string, { arity: 0 | 1; kind: "string"; description: string }> = {};
-
-        if (rawDescriptor.flags !== undefined) {
-            for (const [flagName, rawFlag] of Object.entries(rawDescriptor.flags)) {
-                flags[flagName] = { arity: rawFlag.arity, kind: "string", description: "" };
-            }
-        }
-
-        registry.set(commandName, {
-            description: commandName,
-            positionals: [],
-            flags: flags,
-        });
+        registry.set(commandName, descriptorFromFixture(commandName, rawDescriptor));
     }
 
     return registry;

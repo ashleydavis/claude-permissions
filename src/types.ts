@@ -62,6 +62,9 @@ export interface ICommandDescriptor {
 
     // Optional sub-command descriptors; when a positional matches a key here, its flags are merged.
     cmds?: { [subCommand: string]: ICommandDescriptor };
+
+    // When true, this command runs the command formed by the arguments after its own positional slots.
+    wrapper?: boolean;
 }
 
 // The raw stdin JSON payload sent by Claude Code's PostToolUse hook.

@@ -1,0 +1,39 @@
+tool_call:
+  tool_name: Bash
+  tool_input:
+    command: timeout -s KILL 30 bun run compile
+ast:
+  type: bash
+  source: timeout -s KILL 30 bun run compile
+  children:
+    command:
+      type: command
+      source: timeout -s KILL 30 bun run compile
+      commandName: timeout
+      options:
+        s: KILL
+      positionals:
+        - "30"
+      envPrefix: {}
+      children:
+        inner:
+          type: command
+          source: bun run compile
+          commandName: bun
+          options: {}
+          positionals:
+            - run
+            - compile
+          envPrefix: {}
+descriptors:
+  timeout:
+    description: Run a command with a time limit
+    wrapper: true
+    positionals:
+      - description: Duration
+      - variadic: true
+    flags:
+      s|signal:
+        arity: 1
+        kind: string
+        description: Signal sent when the time limit is reached

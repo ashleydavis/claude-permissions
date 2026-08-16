@@ -1,0 +1,22 @@
+description: "bash: timeout wraps the inner command, so a denied rm stays denied"
+input:
+  tool_name: Bash
+  tool_input:
+    command: timeout 30 rm -rf /
+  cwd: ${PROJECT_DIR}
+rules:
+  bash:
+    timeout:
+      decide: allow
+    rm:
+      decide: deny
+expected:
+  decision: deny
+home_files:
+  .claude/permissions.d/commands/timeout.yaml: |
+    timeout:
+      description: Run a command with a time limit
+      wrapper: true
+      positionals:
+        - description: Duration
+        - variadic: true

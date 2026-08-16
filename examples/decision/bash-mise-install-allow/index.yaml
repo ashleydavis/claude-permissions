@@ -1,0 +1,22 @@
+description: "bash: a mise subcommand that runs no other command is decided by the mise rule alone"
+input:
+  tool_name: Bash
+  tool_input:
+    command: mise install
+  cwd: ${PROJECT_DIR}
+rules:
+  bash:
+    mise:
+      decide: allow
+expected:
+  decision: allow
+home_files:
+  .claude/permissions.d/commands/mise.yaml: |
+    mise:
+      description: mise-en-place tool version manager and task runner
+      cmds:
+        exec:
+          description: Execute a command with mise-managed tools on PATH
+          wrapper: true
+          positionals:
+            - variadic: true

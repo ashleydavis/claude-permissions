@@ -23,7 +23,7 @@ import { BinopAstNode } from "../ast-nodes/binop-ast-node";
 import { BashTokenKind } from "../tokenizer";
 import { parse } from "../parse";
 import { IToolCall } from "../tool-call";
-import { ICommandDescriptor } from "../types";
+import { ICommandDescriptor, IPositionalDescriptor } from "../types";
 
 const noRules: IRules = { rules: [] };
 
@@ -47,6 +47,40 @@ function makeCall(command: string): IToolCall {
         tool_input: { command: command },
         cwd: "/project",
     };
+}
+
+// makeWrapperDef returns a wrapper descriptor with ownPositionals slots of its own before the command it runs.
+function makeWrapperDef(ownPositionals: number): ICommandDescriptor {
+
+    const positionals: IPositionalDescriptor[] = [];
+    for (let slot = 0; slot < ownPositionals; slot++) {
+        positionals.push({ kind: "string", description: "", variadic: false });
+    }
+    positionals.push({ kind: "string", description: "", variadic: true });
+    return {
+        description: "",
+        positionals: positionals,
+        flags: {},
+        wrapper: true,
+    };
+}
+
+// makeWrapperDescriptors returns a registry declaring xargs, timeout and mise exec as wrappers.
+function makeWrapperDescriptors(): Map<string, ICommandDescriptor> {
+
+    return new Map([
+        ["xargs", makeWrapperDef(0)],
+        ["timeout", makeWrapperDef(1)],
+        [
+            "mise",
+            {
+                description: "mise",
+                positionals: [],
+                flags: {},
+                cmds: { exec: makeWrapperDef(0), x: makeWrapperDef(0) },
+            },
+        ],
+    ]);
 }
 
 function makeReadCall(filePath: string): IToolCall {
@@ -833,7 +867,7 @@ describe("decide pipelines and production rules", () => {
             { "bash-rules.yaml": { bash: { grep: { decide: "allow" } } } },
             {}
         );
-        const ast = parse(makeCall("xargs grep -l \"pattern\" 2>/dev/null"), new Map());
+        const ast = parse(makeCall("xargs grep -l \"pattern\" 2>/dev/null"), makeWrapperDescriptors());
         const result = await decide(ast, rules, { cwd: "/home/user/project", env: {} }, new NullAuditLogger());
         expect(result).toEqual({ action: "allow" });
     });
@@ -845,7 +879,67 @@ describe("decide pipelines and production rules", () => {
             { "bash-rules.yaml": { bash: { rm: { decide: "deny" } } } },
             {}
         );
-        const ast = parse(makeCall("xargs rm -f"), new Map());
+        const ast = parse(makeCall("xargs rm -f"), makeWrapperDescriptors());
+        const result = await decide(ast, rules, { cwd: "/home/user/project", env: {} }, new NullAuditLogger());
+        expect(result).toEqual({ action: "deny" });
+    });
+
+    test("returns allow when mise exec is allowed and the command it runs is allowed (bash-mise-exec-inner-allow)", async () => {
+        const rules = await setupLayeredEnv(
+            {},
+            {},
+            { "bash-rules.yaml": { bash: { mise: { decide: "allow" }, bun: { decide: "allow" } } } },
+            {}
+        );
+        const ast = parse(makeCall("mise exec -- bun run compile"), makeWrapperDescriptors());
+        const result = await decide(ast, rules, { cwd: "/home/user/project", env: {} }, new NullAuditLogger());
+        expect(result).toEqual({ action: "allow" });
+    });
+
+    test("returns deny when mise exec is allowed but the command it runs is denied (bash-mise-exec-inner-deny)", async () => {
+        const rules = await setupLayeredEnv(
+            {},
+            {},
+            { "bash-rules.yaml": { bash: { mise: { decide: "allow" }, rm: { decide: "deny" } } } },
+            {}
+        );
+        const ast = parse(makeCall("mise exec -- rm -rf /"), makeWrapperDescriptors());
+        const result = await decide(ast, rules, { cwd: "/home/user/project", env: {} }, new NullAuditLogger());
+        expect(result).toEqual({ action: "deny" });
+    });
+
+    test("returns ask when mise exec is allowed but no rule matches the command it runs (bash-mise-exec-inner-unknown-ask)", async () => {
+        const rules = await setupLayeredEnv(
+            {},
+            {},
+            { "bash-rules.yaml": { bash: { mise: { decide: "allow" } } } },
+            {}
+        );
+        const ast = parse(makeCall("mise exec -- mytool --send secrets"), makeWrapperDescriptors());
+        const result = await decide(ast, rules, { cwd: "/home/user/project", env: {} }, new NullAuditLogger());
+        expect(result).toEqual({ action: "ask" });
+    });
+
+    test("returns allow when mise runs a subcommand of its own (bash-mise-install-allow)", async () => {
+        const rules = await setupLayeredEnv(
+            {},
+            {},
+            { "bash-rules.yaml": { bash: { mise: { decide: "allow" } } } },
+            {}
+        );
+        const ast = parse(makeCall("mise install"), new Map());
+        const result = await decide(ast, rules, { cwd: "/home/user/project", env: {} }, new NullAuditLogger());
+        expect(result).toEqual({ action: "allow" });
+    });
+
+    test("returns deny when timeout is allowed but the command it runs is denied (bash-timeout-inner-deny)", async () => {
+        const rules = await setupLayeredEnv(
+            {},
+            {},
+            { "bash-rules.yaml": { bash: { timeout: { decide: "allow" }, rm: { decide: "deny" } } } },
+            {}
+        );
+        const ast = parse(makeCall("timeout 30 rm -rf /"), makeWrapperDescriptors());
         const result = await decide(ast, rules, { cwd: "/home/user/project", env: {} }, new NullAuditLogger());
         expect(result).toEqual({ action: "deny" });
     });

@@ -218,17 +218,6 @@ After lexing, `extractSubstitutions()` scans resolved word text for `$(...)` and
 - `examples/ast/backtick-substitution/` (same for backticks inside quotes)
 
 
-## Command-specific parsing is hardcoded instead of pluggable
-
-The parser embeds bespoke logic for individual commands (notably `xargs`: dedicated AST node type, option tables, flag consumers, and a post-parse transform). Each new wrapper command (`timeout`, `mise`, and similar) would require the same pattern: new node types, parser branches, and walker special cases scattered through `src/parse.ts` and related code.
-
-**Recommended fix:** Introduce command-specific parser plugins. Each plugin registers for a command name and owns how that invocation is parsed (splitting wrapper options from the inner command, producing an intermediate AST node, or rewriting the tree). The core parser stays generic; `xargs`, `timeout`, `mise`, and future wrappers ship as plugins instead of inline hardcoding.
-
-**Affected examples:**
-
-- `examples/ast/xargs/`
-
-
 ## `cmd-in` path globs match non-path positionals
 
 When a `cmd-in` pattern is path-style (`/` or `./` prefix), every positional is resolved against cwd before glob matching. `cmd-in` is OR across all positionals, so a non-path argument that happens to look relative can satisfy a project-scoped path glob.

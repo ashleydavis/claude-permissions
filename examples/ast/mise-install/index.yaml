@@ -1,0 +1,16 @@
+tool_call:
+  tool_name: Bash
+  tool_input:
+    command: mise install
+ast:
+  type: bash
+  source: mise install
+  children:
+    command:
+      type: command
+      source: mise install
+      commandName: mise
+      options: {}
+      positionals:
+        - install
+      envPrefix: {}

@@ -1,0 +1,22 @@
+description: "bash: allowing mise exec does not allow a command no rule matches"
+input:
+  tool_name: Bash
+  tool_input:
+    command: mise exec -- mytool --send secrets
+  cwd: ${PROJECT_DIR}
+rules:
+  bash:
+    mise:
+      decide: allow
+expected:
+  decision: ask
+home_files:
+  .claude/permissions.d/commands/mise.yaml: |
+    mise:
+      description: mise-en-place tool version manager and task runner
+      cmds:
+        exec:
+          description: Execute a command with mise-managed tools on PATH
+          wrapper: true
+          positionals:
+            - variadic: true

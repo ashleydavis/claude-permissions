@@ -14,5 +14,12 @@ home_dir_files:
       rm:
         decide: deny
 
+  commands/xargs.yaml:
+    xargs:
+      description: Build and run command lines from standard input
+      wrapper: true
+      positionals:
+        - variadic: true
+
 expected:
   decision: deny

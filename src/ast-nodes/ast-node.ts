@@ -77,6 +77,16 @@ export class AstNode implements IAstNode {
         this.children = children;
     }
 
+    // A child deny always stands; otherwise this node's own rule overrides its children.
+    combineDecisions(ownDecisions: IDecision[], childDecision: IDecision | undefined): IDecision | undefined {
+
+        if (childDecision && childDecision.action === "deny") {
+            return childDecision;
+        }
+
+        return pickStrictest(ownDecisions) || childDecision;
+    }
+
     // Run this node's rules and children, threading context, and return the combined decision.
     async evaluate(rules: IRule[], context: IContext, logger: IAuditLogger): Promise<IRuleEvaluation> {
 
@@ -158,20 +168,8 @@ export class AstNode implements IAstNode {
             };
         }
 
-        // A child deny always stands; otherwise the node's own rule overrides its children.
         const childDecision = pickStrictest(childDecisions);
-        if (childDecision && childDecision.action === "deny") {
-            logger.log({
-                type: "aggregation",
-                timestamp: toLocalISOString(new Date()),
-                cmd: this.source,
-                decision: childDecision.action,
-                reason: childDecision.reason,
-            });
-            return { decision: childDecision, context: workingContext };
-        }
-
-        const combinedDecision = pickStrictest(ownDecisions) || childDecision;
+        const combinedDecision = this.combineDecisions(ownDecisions, childDecision);
         if (combinedDecision) {
             logger.log({
                 type: "aggregation",

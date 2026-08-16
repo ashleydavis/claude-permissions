@@ -1,0 +1,35 @@
+tool_call:
+  tool_name: Bash
+  tool_input:
+    command: mise exec -- bun run compile
+ast:
+  type: bash
+  source: mise exec -- bun run compile
+  children:
+    command:
+      type: command
+      source: mise exec -- bun run compile
+      commandName: mise
+      options: {}
+      positionals:
+        - exec
+      envPrefix: {}
+      children:
+        inner:
+          type: command
+          source: bun run compile
+          commandName: bun
+          options: {}
+          positionals:
+            - run
+            - compile
+          envPrefix: {}
+descriptors:
+  mise:
+    description: mise-en-place tool version manager and task runner
+    cmds:
+      exec:
+        description: Execute a command with mise-managed tools on PATH
+        wrapper: true
+        positionals:
+          - variadic: true

@@ -34,6 +34,8 @@ interface IRawCommandDescriptor {
     flags?: Record<string, IRawFlagDescriptor>;
     // Optional sub-command entries keyed by sub-command name
     cmds?: Record<string, IRawCommandDescriptor>;
+    // Whether this command runs another command given in its arguments
+    wrapper?: boolean;
 }
 
 // Raw YAML file: command name → raw descriptor
@@ -77,6 +79,9 @@ function normaliseCommandDescriptor(raw: IRawCommandDescriptor): ICommandDescrip
             cmds[subCommandName] = normaliseCommandDescriptor(rawSubCommand);
         }
         result.cmds = cmds;
+    }
+    if (raw.wrapper) {
+        result.wrapper = true;
     }
     return result;
 }

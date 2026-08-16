@@ -1,0 +1,58 @@
+tool_call:
+  tool_name: Bash
+  tool_input:
+    command: mise exec -- bun run compile 2>&1 | tail -20
+ast:
+  type: bash
+  source: mise exec -- bun run compile 2>&1 | tail -20
+  children:
+    command:
+      type: binop
+      op: "|"
+      source: mise exec -- bun run compile 2>&1 | tail -20
+      children:
+        left:
+          type: redirect
+          op: 2>&
+          source: mise exec -- bun run compile 2>&1
+          children:
+            left:
+              type: command
+              source: mise exec -- bun run compile 2>&1
+              commandName: mise
+              options: {}
+              positionals:
+                - exec
+              envPrefix: {}
+              children:
+                inner:
+                  type: command
+                  source: bun run compile
+                  commandName: bun
+                  options: {}
+                  positionals:
+                    - run
+                    - compile
+                  envPrefix: {}
+            right:
+              type: target
+              source: "1"
+              path: "1"
+        right:
+          type: command
+          source: tail -20
+          commandName: tail
+          options:
+            "2": true
+            "0": true
+          positionals: []
+          envPrefix: {}
+descriptors:
+  mise:
+    description: mise-en-place tool version manager and task runner
+    cmds:
+      exec:
+        description: Execute a command with mise-managed tools on PATH
+        wrapper: true
+        positionals:
+          - variadic: true

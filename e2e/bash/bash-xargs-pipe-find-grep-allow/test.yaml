@@ -16,5 +16,12 @@ home_dir_files:
       grep:
         decide: allow
 
+  commands/xargs.yaml:
+    xargs:
+      description: Build and run command lines from standard input
+      wrapper: true
+      positionals:
+        - variadic: true
+
 expected:
   decision: allow

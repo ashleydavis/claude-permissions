@@ -1,0 +1,24 @@
+description: "bash: mise exec is allowed and so is the command it runs, so the whole command is allowed"
+input:
+  tool_name: Bash
+  tool_input:
+    command: mise exec -- bun run compile
+  cwd: ${PROJECT_DIR}
+rules:
+  bash:
+    mise:
+      decide: allow
+    bun:
+      decide: allow
+expected:
+  decision: allow
+home_files:
+  .claude/permissions.d/commands/mise.yaml: |
+    mise:
+      description: mise-en-place tool version manager and task runner
+      cmds:
+        exec:
+          description: Execute a command with mise-managed tools on PATH
+          wrapper: true
+          positionals:
+            - variadic: true

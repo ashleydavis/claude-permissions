@@ -22918,6 +22918,12 @@ class AstNode {
     this.source = source;
     this.children = children;
   }
+  combineDecisions(ownDecisions, childDecision) {
+    if (childDecision && childDecision.action === "deny") {
+      return childDecision;
+    }
+    return pickStrictest(ownDecisions) || childDecision;
+  }
   async evaluate(rules, context, logger) {
     const childDecisions = [];
     const ownDecisions = [];
@@ -22987,17 +22993,7 @@ class AstNode {
       };
     }
     const childDecision = pickStrictest(childDecisions);
-    if (childDecision && childDecision.action === "deny") {
-      logger.log({
-        type: "aggregation",
-        timestamp: toLocalISOString(new Date),
-        cmd: this.source,
-        decision: childDecision.action,
-        reason: childDecision.reason
-      });
-      return { decision: childDecision, context: workingContext };
-    }
-    const combinedDecision = pickStrictest(ownDecisions) || childDecision;
+    const combinedDecision = this.combineDecisions(ownDecisions, childDecision);
     if (combinedDecision) {
       logger.log({
         type: "aggregation",
@@ -24878,6 +24874,9 @@ function normaliseCommandDescriptor(raw) {
     }
     result.cmds = cmds;
   }
+  if (raw.wrapper) {
+    result.wrapper = true;
+  }
   return result;
 }
 async function isYamlFile(dirPath, entryName) {
@@ -24950,6 +24949,16 @@ class CommandAstNode extends AstNode {
     this.options = options;
     this.positionals = positionals;
     this.envPrefix = envPrefix;
+  }
+  combineDecisions(ownDecisions, childDecision) {
+    if (this.children?.inner === undefined) {
+      return super.combineDecisions(ownDecisions, childDecision);
+    }
+    const decisions = [...ownDecisions];
+    if (childDecision) {
+      decisions.push(childDecision);
+    }
+    return pickStrictest(decisions);
   }
 }
 
@@ -25183,17 +25192,6 @@ class ToolAstNode extends AstNode {
     super("tool", source);
     this.tool_name = tool_name;
     this.tool_input = tool_input;
-  }
-}
-
-// src/ast-nodes/xargs-ast-node.ts
-class XargsAstNode extends AstNode {
-  options;
-  children;
-  constructor(options, children, source) {
-    super("xargs", source);
-    this.options = options;
-    this.children = children;
   }
 }
 
@@ -25694,19 +25692,21 @@ function parseEnvPrefix(tokens) {
     remainingTokens = parseResult.remainingTokens;
   }
 }
+function findSubCommandName(tokens, commandDef) {
+  let scanTokens = tokens;
+  while (scanTokens.length > 0) {
+    const scanResult = parseArgument(scanTokens, commandDef);
+    if (scanResult.argument.positionals.length > 0) {
+      return scanResult.argument.positionals[0];
+    }
+    scanTokens = scanResult.remainingTokens;
+  }
+  return;
+}
 function parseArguments(tokens, commandDef) {
   let effectiveCommandDef = commandDef;
   if (commandDef?.cmds) {
-    let scanTokens = tokens;
-    let subCommandName;
-    while (scanTokens.length > 0) {
-      const scanResult = parseArgument(scanTokens, commandDef);
-      if (scanResult.argument.positionals.length > 0) {
-        subCommandName = scanResult.argument.positionals[0];
-        break;
-      }
-      scanTokens = scanResult.remainingTokens;
-    }
+    const subCommandName = findSubCommandName(tokens, commandDef);
     if (subCommandName) {
       const subCommandDef = commandDef.cmds[subCommandName];
       if (subCommandDef) {
@@ -25990,38 +25990,98 @@ function parseBraceGroup(tokenizer, source, commandRegistry) {
   }
   return new BraceGroupAstNode({ body }, source.slice(groupStart, groupEnd));
 }
-function parseXargsNode(remainingTokens, source, statementStart, statementEnd, atStatementEnd, commandRegistry) {
-  let tokenIndex = 1;
-  const xargsOptionTokens = [];
-  while (tokenIndex < remainingTokens.length) {
-    const token = remainingTokens[tokenIndex];
-    if (token === "--") {
-      tokenIndex++;
+function countOwnPositionals(commandDef) {
+  if (commandDef === undefined) {
+    return 0;
+  }
+  let count = 0;
+  for (const positional of commandDef.positionals) {
+    if (positional.variadic) {
       break;
     }
+    count++;
+  }
+  return count;
+}
+function isWrapperInvocation(tokens, commandRegistry) {
+  const commandDef = commandRegistry.get(tokens[0]);
+  if (commandDef === undefined) {
+    return false;
+  }
+  if (commandDef.wrapper) {
+    return true;
+  }
+  const subCommandName = findSubCommandName(tokens.slice(1), commandDef);
+  if (subCommandName === undefined) {
+    return false;
+  }
+  const subCommandDef = commandDef.cmds?.[subCommandName];
+  if (subCommandDef?.wrapper) {
+    return true;
+  }
+  return false;
+}
+function splitWrapperArguments(argumentTokens, wrapperDef) {
+  const markerIndex = argumentTokens.indexOf("--");
+  if (markerIndex !== -1) {
+    return {
+      ownTokens: argumentTokens.slice(0, markerIndex),
+      innerTokens: argumentTokens.slice(markerIndex + 1)
+    };
+  }
+  const ownTokens = [];
+  let effectiveDef = wrapperDef;
+  let ownPositionals = countOwnPositionals(wrapperDef);
+  let positionalCount = 0;
+  let tokens = argumentTokens;
+  while (tokens.length > 0) {
+    const token = tokens[0];
     if (!token.startsWith("-")) {
-      break;
+      const subCommandDef = effectiveDef?.cmds?.[token];
+      if (subCommandDef?.wrapper) {
+        effectiveDef = subCommandDef;
+        ownPositionals = countOwnPositionals(subCommandDef);
+        positionalCount = 0;
+        ownTokens.push(token);
+        tokens = tokens.slice(1);
+        continue;
+      }
+      if (positionalCount >= ownPositionals) {
+        break;
+      }
+      positionalCount++;
+      ownTokens.push(token);
+      tokens = tokens.slice(1);
+      continue;
     }
-    xargsOptionTokens.push(token);
-    tokenIndex++;
+    const parsedArgument = parseArgument(tokens, effectiveDef);
+    ownTokens.push(...tokens.slice(0, tokens.length - parsedArgument.remainingTokens.length));
+    tokens = parsedArgument.remainingTokens;
   }
-  const xargsOptions = parseArguments(xargsOptionTokens, undefined).options;
-  const subcommandTokens = remainingTokens.slice(tokenIndex);
-  let child;
-  if (subcommandTokens.length === 0) {
-    child = new CommandAstNode("", {}, [], {}, "");
+  return { ownTokens, innerTokens: tokens };
+}
+function parseWrapperNode(remainingTokens, source, statementStart, statementEnd, atStatementEnd, commandRegistry) {
+  const commandName = remainingTokens[0];
+  const wrapperDef = commandRegistry.get(commandName);
+  const argumentSplit = splitWrapperArguments(remainingTokens.slice(1), wrapperDef);
+  const wrapperArguments = parseArguments(argumentSplit.ownTokens, wrapperDef);
+  let inner;
+  if (argumentSplit.innerTokens.length === 0) {
+    inner = new CommandAstNode("", {}, [], {}, "");
   } else {
-    const subcommandEnvPrefix = parseEnvPrefix(subcommandTokens);
-    const subcommandName = subcommandEnvPrefix.remainingTokens[0] ?? "";
-    const subcommandDef = commandRegistry.get(subcommandName);
-    const subcommandArguments = parseArguments(subcommandEnvPrefix.remainingTokens.slice(1), subcommandDef);
-    child = new CommandAstNode(subcommandName, subcommandArguments.options, subcommandArguments.positionals, subcommandEnvPrefix.envPrefix, subcommandTokens.join(" "));
+    const innerEnvPrefix = parseEnvPrefix(argumentSplit.innerTokens);
+    const innerName = innerEnvPrefix.remainingTokens[0] ?? "";
+    const innerDef = commandRegistry.get(innerName);
+    const innerArguments = parseArguments(innerEnvPrefix.remainingTokens.slice(1), innerDef);
+    inner = new CommandAstNode(innerName, innerArguments.options, innerArguments.positionals, innerEnvPrefix.envPrefix, argumentSplit.innerTokens.join(" "));
   }
-  let xargsSource = source.slice(statementStart, statementEnd);
+  let wrapperSource = source.slice(statementStart, statementEnd);
   if (atStatementEnd) {
-    xargsSource = source.slice(statementStart);
+    wrapperSource = source.slice(statementStart);
   }
-  return new XargsAstNode(xargsOptions, { child }, xargsSource);
+  const wrapperNode = new CommandAstNode(commandName, wrapperArguments.options, wrapperArguments.positionals, {}, wrapperSource);
+  wrapperNode.children = { inner };
+  return wrapperNode;
 }
 function isWordTokenKind(kind) {
   return kind === "word" /* Word */ || kind === "'" /* SingleQuote */ || kind === '"' /* DoubleQuote */ || kind === "`" /* Backtick */ || kind === "$(" /* SubstitutionOpen */;
@@ -26137,21 +26197,22 @@ function parseStatement(tokenizer, source, commandRegistry) {
   }
   const envPrefixResult = parseEnvPrefix(wordValues);
   const commandName = envPrefixResult.remainingTokens[0] ?? "";
-  if (commandName === "xargs") {
-    const atStatementEnd = tokenizer.peek() === undefined;
-    return parseXargsNode(envPrefixResult.remainingTokens, source, statementStart, statementEnd, atStatementEnd, commandRegistry);
+  let baseNode;
+  if (isWrapperInvocation(envPrefixResult.remainingTokens, commandRegistry)) {
+    baseNode = parseWrapperNode(envPrefixResult.remainingTokens, source, statementStart, statementEnd, tokenizer.peek() === undefined, commandRegistry);
+  } else {
+    const commandDef = commandRegistry.get(commandName);
+    const parsedArguments = parseArguments(envPrefixResult.remainingTokens.slice(1), commandDef);
+    let commandSource = source.slice(statementStart, statementEnd);
+    if (tokenizer.peek() === undefined) {
+      commandSource = source.slice(statementStart);
+    }
+    baseNode = new CommandAstNode(commandName, parsedArguments.options, parsedArguments.positionals, envPrefixResult.envPrefix, commandSource);
   }
-  const commandDef = commandRegistry.get(commandName);
-  const parsedArguments = parseArguments(envPrefixResult.remainingTokens.slice(1), commandDef);
-  let commandSource = source.slice(statementStart, statementEnd);
-  if (tokenizer.peek() === undefined) {
-    commandSource = source.slice(statementStart);
-  }
-  const commandNode = new CommandAstNode(commandName, parsedArguments.options, parsedArguments.positionals, envPrefixResult.envPrefix, commandSource);
   if (substitution !== undefined) {
-    commandNode.children = { substitution };
+    baseNode.children = { ...baseNode.children, substitution };
   }
-  let node = commandNode;
+  let node = baseNode;
   let heredocSeen = false;
   while (tokenizer.peek()?.kind === "redirect" /* Redirect */) {
     const redirectToken = tokenizer.peek();
@@ -26182,12 +26243,12 @@ function parseStatement(tokenizer, source, commandRegistry) {
     const redirectNode = new RedirectAstNode(redirectToken.value, { left: node, right: targetNode }, source.slice(statementStart, statementEnd));
     node = redirectNode;
   }
-  if (node !== commandNode && !heredocSeen) {
+  if (node !== baseNode && !heredocSeen) {
     let fullSource = source.slice(statementStart, statementEnd);
     if (tokenizer.peek() === undefined) {
       fullSource = source.slice(statementStart);
     }
-    commandNode.source = fullSource;
+    baseNode.source = fullSource;
   }
   return node;
 }

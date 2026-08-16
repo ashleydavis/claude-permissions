@@ -37,7 +37,7 @@ flowchart LR
 
 [`parse`](../src/parse.ts) dispatches on `tool_name` and builds a typed AST for each supported tool (Bash, Read, Write, Edit, Grep, WebFetch, Agent, and a fallback for everything else).
 
-Bash and Shell commands are tokenized and parsed into `command`, `binop`, `redirect`, `target`, `heredoc`, `substitution`, `xargs`, and block nodes. [`parseToolCallToAst`](../src/analyze.ts) loads **command descriptors** from home and project `permissions.d/commands/` (project wins on conflict) so the parser knows flag arity and positional kinds before it runs.
+Bash and Shell commands are tokenized and parsed into `command`, `binop`, `redirect`, `target`, `heredoc`, `substitution`, and block nodes. [`parseToolCallToAst`](../src/analyze.ts) loads **command descriptors** from home and project `permissions.d/commands/` (project wins on conflict) so the parser knows flag arity and positional kinds before it runs.
 
 A `redirect` node applies its operator to two operands: the command on `left`, and on `right` either a `target` node holding the file path (or fd number) or, for `<<`, a `heredoc` node holding the terminator and body. `redirect.out` and `redirect.in` rules match the `redirect` node and read the path from its `target` child, which is why they need no `bash:` rule per command. See [CONFIGURATION.md](CONFIGURATION.md#redirect-path-rules).
 
@@ -62,8 +62,8 @@ For `find . | xargs grep -l "pattern"`:
 graph TD
   Bash["bash<br/>source: find . | xargs grep -l &quot;pattern&quot;"] --> Pipe["binop<br/>op: |"]
   Pipe --> Find["command<br/>commandName: find<br/>positionals: [.]"]
-  Pipe --> Xargs["xargs"]
-  Xargs --> Grep["command<br/>commandName: grep<br/>options: {l: true}"]
+  Pipe --> Xargs["command<br/>commandName: xargs"]
+  Xargs -->|inner| Grep["command<br/>commandName: grep<br/>options: {l: true}"]
 ```
 
 Source files: [`src/parse.ts`](https://github.com/ashleydavis/expressive-permissions/blob/main/src/parse.ts), [`src/analyze.ts`](https://github.com/ashleydavis/expressive-permissions/blob/main/src/analyze.ts).
@@ -117,4 +117,12 @@ Built-ins live under `src/rules/builtin/` and are prepended by `load` before any
 | `EmptyCommandRule` | `empty-command-rule.ts` | empty `commandName` with a non-empty `envPrefix` | allow | Merges `envPrefix` into `context.env` |
 | `ExportRule` | `export-rule.ts` | `export KEY=VALUE …` | allow | Merges assignments into `context.env` |
 
-There is no separate env-prefix built-in for `FOO=bar cmd`: matchers read `envPrefix` on the command node. There is no separate `xargs` permission built-in; `xargs` is an AST node whose child is evaluated normally.
+There is no separate env-prefix built-in for `FOO=bar cmd`: matchers read `envPrefix` on the command node. There is no separate built-in for wrapper commands either.
+
+## Wrapper commands
+
+`xargs`, `timeout` and `mise exec` run another command, so they parse into an ordinary `command` node with that command as its `inner` child. The wrapper keeps its own `commandName`, flags and positionals, so a bash rule matches it exactly like any other command (`bash > timeout`, or `bash > mise > exec`). Commands that run nothing else have no `inner` child, so `mise install` is matched as `bash > mise > install`.
+
+Allowing a wrapper says nothing about the command it runs, so a command node with an `inner` child combines the two decisions by strictest-wins rather than letting its own rule override its child. Allowing `xargs` and denying `rm` still denies `xargs rm`, and allowing `mise` leaves `mise exec -- somethingunknown` asking.
+
+Which commands wrap is declared in their command descriptor: `wrapper: true` on the command, or on the `cmds` entry when only some subcommands wrap (`mise exec` does, `mise install` does not). The positionals a wrapper takes for itself are the descriptor slots before its variadic slot, so `timeout` keeps its duration and everything after it is the command it runs. Everything before a `--` belongs to the wrapper regardless. A command with no descriptor never wraps.

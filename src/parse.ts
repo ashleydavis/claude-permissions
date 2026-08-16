@@ -20,7 +20,6 @@ import { SubstitutionAstNode } from "./ast-nodes/substitution-ast-node";
 import { WebFetchAstNode } from "./ast-nodes/webfetch-ast-node";
 import { AgentAstNode } from "./ast-nodes/agent-ast-node";
 import { ToolAstNode } from "./ast-nodes/tool-ast-node";
-import { XargsAstNode } from "./ast-nodes/xargs-ast-node";
 import { ITokenizer, Tokenizer, BashTokenKind } from "./tokenizer";
 import { IToolCall } from "./tool-call";
 
@@ -327,6 +326,22 @@ interface IParsedArguments {
     positionals: string[];
 }
 
+// Walks past leading flags (using their arity) and returns the first positional token, the sub-command name candidate
+// (e.g. "commit" in git -C /tmp commit -m msg).
+export function findSubCommandName(tokens: string[], commandDef: ICommandDescriptor | undefined): string | undefined {
+
+    let scanTokens = tokens;
+    while (scanTokens.length > 0) {
+        const scanResult = parseArgument(scanTokens, commandDef);
+        if (scanResult.argument.positionals.length > 0) {
+            return scanResult.argument.positionals[0];
+        }
+        scanTokens = scanResult.remainingTokens;
+    }
+
+    return undefined;
+}
+
 // Parses flags and positionals from a token list.
 export function parseArguments(tokens: string[], commandDef: ICommandDescriptor | undefined): IParsedArguments {
 
@@ -335,18 +350,7 @@ export function parseArguments(tokens: string[], commandDef: ICommandDescriptor 
     // Sub-command flags live under cmds.<name>; merge them once the sub-command positional is found
     // so arity-1 flags (e.g. git -C path commit -m message) consume the next token correctly.
     if (commandDef?.cmds) {
-        // Walk past top-level flags (using their arity) until the first positional token.
-        // That positional is the sub-command name candidate (e.g. "commit" in git -C /tmp commit -m msg).
-        let scanTokens = tokens;
-        let subCommandName: string | undefined;
-        while (scanTokens.length > 0) {
-            const scanResult = parseArgument(scanTokens, commandDef);
-            if (scanResult.argument.positionals.length > 0) {
-                subCommandName = scanResult.argument.positionals[0];
-                break;
-            }
-            scanTokens = scanResult.remainingTokens;
-        }
+        const subCommandName = findSubCommandName(tokens, commandDef);
 
         // When the candidate matches a known sub-command, merge its flags with the top-level descriptor
         // so later parsing resolves sub-command flags (e.g. commit -m) with the correct arity.
@@ -716,8 +720,114 @@ export function parseBraceGroup(tokenizer: ITokenizer, source: string, commandRe
     return new BraceGroupAstNode({ body }, source.slice(groupStart, groupEnd));
 }
 
-// Parses an `xargs` command from tokens remaining after env-prefix parsing.
-export function parseXargsNode(
+// The tokens belonging to the wrapper itself, and the tokens of the command it runs.
+interface IWrapperArgumentSplit {
+
+    // Tokens parsed as the wrapper's own flags and positionals.
+    ownTokens: string[];
+
+    // Tokens parsed as the command the wrapper runs.
+    innerTokens: string[];
+}
+
+// Counts the positional slots a command takes for itself: everything up to its variadic slot, which holds the command it runs.
+export function countOwnPositionals(commandDef: ICommandDescriptor | undefined): number {
+
+    if (commandDef === undefined) {
+        return 0;
+    }
+
+    let count = 0;
+    for (const positional of commandDef.positionals) {
+        if (positional.variadic) {
+            break;
+        }
+        count++;
+    }
+
+    return count;
+}
+
+// Return true when these tokens invoke a command whose descriptor says it runs another command.
+export function isWrapperInvocation(tokens: string[], commandRegistry: Map<string, ICommandDescriptor>): boolean {
+
+    const commandDef = commandRegistry.get(tokens[0]);
+    if (commandDef === undefined) {
+        return false;
+    }
+
+    if (commandDef.wrapper) {
+        return true;
+    }
+
+    // Only some subcommands run another command (`mise exec` does, `mise install` does not).
+    const subCommandName = findSubCommandName(tokens.slice(1), commandDef);
+    if (subCommandName === undefined) {
+        return false;
+    }
+
+    const subCommandDef = commandDef.cmds?.[subCommandName];
+    if (subCommandDef?.wrapper) {
+        return true;
+    }
+
+    return false;
+}
+
+// Splits a wrapper's arguments at the first positional that belongs to the command it runs.
+export function splitWrapperArguments(argumentTokens: string[], wrapperDef: ICommandDescriptor | undefined): IWrapperArgumentSplit {
+
+    // Everything before an end-of-options marker belongs to the wrapper, however many positionals that is.
+    const markerIndex = argumentTokens.indexOf("--");
+    if (markerIndex !== -1) {
+        return {
+            ownTokens: argumentTokens.slice(0, markerIndex),
+            innerTokens: argumentTokens.slice(markerIndex + 1),
+        };
+    }
+
+    const ownTokens: string[] = [];
+    let effectiveDef = wrapperDef;
+    let ownPositionals = countOwnPositionals(wrapperDef);
+    let positionalCount = 0;
+    let tokens = argumentTokens;
+
+    while (tokens.length > 0) {
+        const token = tokens[0];
+
+        if (!token.startsWith("-")) {
+
+            // The subcommand that makes this a wrapper belongs to the wrapper, and its slots take over from here.
+            const subCommandDef = effectiveDef?.cmds?.[token];
+            if (subCommandDef?.wrapper) {
+                effectiveDef = subCommandDef;
+                ownPositionals = countOwnPositionals(subCommandDef);
+                positionalCount = 0;
+                ownTokens.push(token);
+                tokens = tokens.slice(1);
+                continue;
+            }
+
+            if (positionalCount >= ownPositionals) {
+                break;
+            }
+            positionalCount++;
+            ownTokens.push(token);
+            tokens = tokens.slice(1);
+            continue;
+        }
+
+        // A flag may take a value, so let argument parsing decide how many tokens it consumes.
+        const parsedArgument = parseArgument(tokens, effectiveDef);
+        ownTokens.push(...tokens.slice(0, tokens.length - parsedArgument.remainingTokens.length));
+        tokens = parsedArgument.remainingTokens;
+    }
+
+    return { ownTokens: ownTokens, innerTokens: tokens };
+}
+
+// Parses a wrapper command from tokens remaining after env-prefix parsing, with the command it runs as its inner child.
+export function parseWrapperNode(
     remainingTokens: string[],
     source: string,
     statementStart: number,
@@ -726,43 +836,31 @@ export function parseXargsNode(
     commandRegistry: Map<string, ICommandDescriptor>,
 ): IAstNode {
 
-    let tokenIndex = 1;
-    const xargsOptionTokens: string[] = [];
+    const commandName = remainingTokens[0];
+    const wrapperDef = commandRegistry.get(commandName);
+    const argumentSplit = splitWrapperArguments(remainingTokens.slice(1), wrapperDef);
+    const wrapperArguments = parseArguments(argumentSplit.ownTokens, wrapperDef);
 
-    while (tokenIndex < remainingTokens.length) {
-        const token = remainingTokens[tokenIndex];
-        if (token === "--") {
-            tokenIndex++;
-            break;
-        }
-        if (!token.startsWith("-")) {
-            break;
-        }
-        xargsOptionTokens.push(token);
-        tokenIndex++;
-    }
-
-    const xargsOptions = parseArguments(xargsOptionTokens, undefined).options;
-    const subcommandTokens = remainingTokens.slice(tokenIndex);
-
-    let child: CommandAstNode;
-    if (subcommandTokens.length === 0) {
-        child = new CommandAstNode("", {}, [], {}, "");
+    let inner: CommandAstNode;
+    if (argumentSplit.innerTokens.length === 0) {
+        inner = new CommandAstNode("", {}, [], {}, "");
     }
     else {
-        const subcommandEnvPrefix = parseEnvPrefix(subcommandTokens);
-        const subcommandName = subcommandEnvPrefix.remainingTokens[0] ?? "";
-        const subcommandDef = commandRegistry.get(subcommandName);
-        const subcommandArguments = parseArguments(subcommandEnvPrefix.remainingTokens.slice(1), subcommandDef);
-        child = new CommandAstNode(subcommandName, subcommandArguments.options, subcommandArguments.positionals, subcommandEnvPrefix.envPrefix, subcommandTokens.join(" "));
+        const innerEnvPrefix = parseEnvPrefix(argumentSplit.innerTokens);
+        const innerName = innerEnvPrefix.remainingTokens[0] ?? "";
+        const innerDef = commandRegistry.get(innerName);
+        const innerArguments = parseArguments(innerEnvPrefix.remainingTokens.slice(1), innerDef);
+        inner = new CommandAstNode(innerName, innerArguments.options, innerArguments.positionals, innerEnvPrefix.envPrefix, argumentSplit.innerTokens.join(" "));
     }
 
-    let xargsSource = source.slice(statementStart, statementEnd);
+    let wrapperSource = source.slice(statementStart, statementEnd);
     if (atStatementEnd) {
-        xargsSource = source.slice(statementStart);
+        wrapperSource = source.slice(statementStart);
     }
 
-    return new XargsAstNode(xargsOptions, { child }, xargsSource);
+    const wrapperNode = new CommandAstNode(commandName, wrapperArguments.options, wrapperArguments.positionals, {}, wrapperSource);
+    wrapperNode.children = { inner };
+    return wrapperNode;
 }
 
 // Return true when a token kind can begin or continue a shell word: a plain word or a quote/substitution delimiter.
@@ -926,32 +1024,34 @@ export function parseStatement(tokenizer: ITokenizer, source: string, commandReg
     const envPrefixResult = parseEnvPrefix(wordValues);
     const commandName = envPrefixResult.remainingTokens[0] ?? "";
 
-    if (commandName === "xargs") {
-        const atStatementEnd = tokenizer.peek() === undefined;
-        return parseXargsNode(
+    let baseNode: IAstNode;
+    if (isWrapperInvocation(envPrefixResult.remainingTokens, commandRegistry)) {
+        baseNode = parseWrapperNode(
             envPrefixResult.remainingTokens,
             source,
             statementStart,
             statementEnd,
-            atStatementEnd,
+            tokenizer.peek() === undefined,
             commandRegistry,
         );
     }
+    else {
+        const commandDef = commandRegistry.get(commandName);
+        const parsedArguments = parseArguments(envPrefixResult.remainingTokens.slice(1), commandDef);
 
-    const commandDef = commandRegistry.get(commandName);
-    const parsedArguments = parseArguments(envPrefixResult.remainingTokens.slice(1), commandDef);
+        let commandSource = source.slice(statementStart, statementEnd);
+        if (tokenizer.peek() === undefined) {
+            commandSource = source.slice(statementStart);
+        }
 
-    let commandSource = source.slice(statementStart, statementEnd);
-    if (tokenizer.peek() === undefined) {
-        commandSource = source.slice(statementStart);
+        baseNode = new CommandAstNode(commandName, parsedArguments.options, parsedArguments.positionals, envPrefixResult.envPrefix, commandSource);
     }
 
-    const commandNode = new CommandAstNode(commandName, parsedArguments.options, parsedArguments.positionals, envPrefixResult.envPrefix, commandSource);
     if (substitution !== undefined) {
-        commandNode.children = { substitution };
+        baseNode.children = { ...baseNode.children, substitution };
     }
 
-    let node: IAstNode = commandNode;
+    let node: IAstNode = baseNode;
     let heredocSeen = false;
     while (tokenizer.peek()?.kind === BashTokenKind.Redirect) {
         const redirectToken = tokenizer.peek();
@@ -987,12 +1087,12 @@ export function parseStatement(tokenizer: ITokenizer, source: string, commandReg
     }
 
     // The heredoc body is input data rather than part of the command, so the command keeps its own source.
-    if (node !== commandNode && !heredocSeen) {
+    if (node !== baseNode && !heredocSeen) {
         let fullSource = source.slice(statementStart, statementEnd);
         if (tokenizer.peek() === undefined) {
             fullSource = source.slice(statementStart);
         }
-        commandNode.source = fullSource;
+        baseNode.source = fullSource;
     }
 
     return node;

@@ -1,5 +1,5 @@
-import { parse, parseArgument, parseArguments, parseBashExpression, parseBashCommand, parseBashToolCall, parseEqualsFlag, parseEnvPrefix, parseEnvPrefixToken, parseFilePathToolCall, parseGrepToolCall, parseWebFetchToolCall, parseAgentToolCall, parseToolNode, parseLongFlag, parseSingleShortFlag, parseShortFlag, skipSemicolonSeparators, parseStatement, parseSubshellGroup, parseBraceGroup, parseForLoop, parseWhileLoop, parseIfStatement, parseCaseStatement, isCaseClauseTerminator, parseSequenceUntilCaseClauseEnd, parseSequenceUntil, parsePipeExpr, parseOrExpr, parseAndExpr, parseSequence, makeBinopNode, tokenizeCommand, parseXargsNode, parseSubstitution, readShellWord, isWordTokenKind } from "../parse";
-import { ICommandDescriptor } from "../types";
+import { parse, parseArgument, parseArguments, parseBashExpression, parseBashCommand, parseBashToolCall, parseEqualsFlag, parseEnvPrefix, parseEnvPrefixToken, parseFilePathToolCall, parseGrepToolCall, parseWebFetchToolCall, parseAgentToolCall, parseToolNode, parseLongFlag, parseSingleShortFlag, parseShortFlag, skipSemicolonSeparators, parseStatement, parseSubshellGroup, parseBraceGroup, parseForLoop, parseWhileLoop, parseIfStatement, parseCaseStatement, isCaseClauseTerminator, parseSequenceUntilCaseClauseEnd, parseSequenceUntil, parsePipeExpr, parseOrExpr, parseAndExpr, parseSequence, makeBinopNode, tokenizeCommand, parseWrapperNode, isWrapperInvocation, splitWrapperArguments, parseSubstitution, readShellWord, isWordTokenKind } from "../parse";
+import { ICommandDescriptor, IPositionalDescriptor } from "../types";
 import { IToolCall } from "../tool-call";
 import { CommandAstNode } from "../ast-nodes/command-ast-node";
 import { Tokenizer, BashTokenKind } from "../tokenizer";
@@ -45,6 +45,51 @@ function makeDescriptors(commandName: string, arity1Flags: string[]): Map<string
         flags: flags,
     };
     return new Map([[commandName, descriptor]]);
+}
+
+// makeWrapperDef returns a wrapper descriptor with ownPositionals slots of its own before the command it runs.
+function makeWrapperDef(ownPositionals: number, arity1Flags: string[]): ICommandDescriptor {
+
+    const flags: Record<string, { arity: 0 | 1; kind: "string"; description: string }> = {};
+    for (const flagName of arity1Flags) {
+        flags[flagName] = { arity: 1, kind: "string", description: "" };
+    }
+    const positionals: IPositionalDescriptor[] = [];
+    for (let slot = 0; slot < ownPositionals; slot++) {
+        positionals.push({ kind: "string", description: "", variadic: false });
+    }
+    positionals.push({ kind: "string", description: "", variadic: true });
+    return {
+        description: "",
+        positionals: positionals,
+        flags: flags,
+        wrapper: true,
+    };
+}
+
+// makeMiseDef returns a descriptor whose exec and x sub-commands run another command, as mise does.
+function makeMiseDef(): ICommandDescriptor {
+
+    return {
+        description: "mise",
+        positionals: [],
+        flags: {},
+        cmds: {
+            exec: makeWrapperDef(0, []),
+            x: makeWrapperDef(0, []),
+            install: { description: "", positionals: [], flags: {} },
+        },
+    };
+}
+
+// makeWrapperDescriptors returns a registry declaring xargs, timeout and mise exec as wrappers.
+function makeWrapperDescriptors(): Map<string, ICommandDescriptor> {
+
+    return new Map([
+        ["xargs", makeWrapperDef(0, [])],
+        ["timeout", makeWrapperDef(1, ["s"])],
+        ["mise", makeMiseDef()],
+    ]);
 }
 
 function makeCall(command: string): IToolCall {
@@ -2208,8 +2253,8 @@ describe("parse", () => {
         });
     });
 
-    test("parse find piped to xargs rm: right operand is xargs node with rm child (xargs)", () => {
-        expect(parse(makeCall("find . | xargs rm"), new Map())).toEqual({
+    test("parse find piped to xargs rm: right operand is wrapper node with rm inner (xargs)", () => {
+        expect(parse(makeCall("find . | xargs rm"), makeWrapperDescriptors())).toEqual({
             type: "bash",
             source: "find . | xargs rm",
             children: {
@@ -2227,11 +2272,14 @@ describe("parse", () => {
                             source: "find .",
                         },
                         right: {
-                            type: "xargs",
+                            type: "command",
                             source: "xargs rm",
+                            commandName: "xargs",
                             options: {},
+                            positionals: [],
+                            envPrefix: {},
                             children: {
-                                child: {
+                                inner: {
                                     type: "command",
                                     commandName: "rm",
                                     options: {},
@@ -2240,6 +2288,158 @@ describe("parse", () => {
                                     source: "rm",
                                 },
                             },
+                        },
+                    },
+                },
+            },
+        });
+    });
+
+    test("parse mise exec: wraps the inner command in a wrapper node (mise-exec)", () => {
+        expect(parse(makeCall("mise exec -- bun run compile"), makeWrapperDescriptors())).toEqual({
+            type: "bash",
+            source: "mise exec -- bun run compile",
+            children: {
+                command: {
+                    type: "command",
+                    source: "mise exec -- bun run compile",
+                    commandName: "mise",
+                    options: {},
+                    positionals: ["exec"],
+                    envPrefix: {},
+                    children: {
+                        inner: {
+                            type: "command",
+                            commandName: "bun",
+                            options: {},
+                            positionals: ["run", "compile"],
+                            envPrefix: {},
+                            source: "bun run compile",
+                        },
+                    },
+                },
+            },
+        });
+    });
+
+    test("parse mise exec redirected and piped: wrapper node sits under the redirect (mise-exec-redirect-pipe)", () => {
+        expect(parse(makeCall("mise exec -- bun run compile 2>&1 | tail -20"), makeWrapperDescriptors())).toEqual({
+            type: "bash",
+            source: "mise exec -- bun run compile 2>&1 | tail -20",
+            children: {
+                command: {
+                    type: "binop",
+                    op: "|",
+                    source: "mise exec -- bun run compile 2>&1 | tail -20",
+                    children: {
+                        left: {
+                            type: "redirect",
+                            op: "2>&",
+                            source: "mise exec -- bun run compile 2>&1",
+                            children: {
+                                left: {
+                                    type: "command",
+                                    source: "mise exec -- bun run compile 2>&1",
+                                    commandName: "mise",
+                                    options: {},
+                                    positionals: ["exec"],
+                                    envPrefix: {},
+                                    children: {
+                                        inner: {
+                                            type: "command",
+                                            commandName: "bun",
+                                            options: {},
+                                            positionals: ["run", "compile"],
+                                            envPrefix: {},
+                                            source: "bun run compile",
+                                        },
+                                    },
+                                },
+                                right: {
+                                    type: "target",
+                                    source: "1",
+                                    path: "1",
+                                },
+                            },
+                        },
+                        right: {
+                            type: "command",
+                            commandName: "tail",
+                            options: { "2": true, "0": true },
+                            positionals: [],
+                            envPrefix: {},
+                            source: "tail -20",
+                        },
+                    },
+                },
+            },
+        });
+    });
+
+    test("parse timeout: wraps the inner command in a wrapper node (timeout)", () => {
+        expect(parse(makeCall("timeout 30 bun run compile"), makeWrapperDescriptors())).toEqual({
+            type: "bash",
+            source: "timeout 30 bun run compile",
+            children: {
+                command: {
+                    type: "command",
+                    source: "timeout 30 bun run compile",
+                    commandName: "timeout",
+                    options: {},
+                    positionals: ["30"],
+                    envPrefix: {},
+                    children: {
+                        inner: {
+                            type: "command",
+                            commandName: "bun",
+                            options: {},
+                            positionals: ["run", "compile"],
+                            envPrefix: {},
+                            source: "bun run compile",
+                        },
+                    },
+                },
+            },
+        });
+    });
+
+    test("parse mise install: a mise subcommand that runs no other command stays a command node (mise-install)", () => {
+        expect(parse(makeCall("mise install"), makeWrapperDescriptors())).toEqual({
+            type: "bash",
+            source: "mise install",
+            children: {
+                command: {
+                    type: "command",
+                    source: "mise install",
+                    commandName: "mise",
+                    options: {},
+                    positionals: ["install"],
+                    envPrefix: {},
+                },
+            },
+        });
+    });
+
+    test("parse timeout with a value flag: the flag value stays with the wrapper (timeout-value-flag)", () => {
+        expect(parse(makeCall("timeout -s KILL 30 bun run compile"), makeWrapperDescriptors())).toEqual({
+            type: "bash",
+            source: "timeout -s KILL 30 bun run compile",
+            children: {
+                command: {
+                    type: "command",
+                    source: "timeout -s KILL 30 bun run compile",
+                    commandName: "timeout",
+                    options: { s: "KILL" },
+                    positionals: ["30"],
+                    envPrefix: {},
+                    children: {
+                        inner: {
+                            type: "command",
+                            commandName: "bun",
+                            options: {},
+                            positionals: ["run", "compile"],
+                            envPrefix: {},
+                            source: "bun run compile",
                         },
                     },
                 },
@@ -2979,16 +3179,19 @@ describe("parseSequence", () => {
     });
 });
 
-describe("parseXargsNode", () => {
+describe("parseWrapperNode", () => {
 
-    test("parse xargs rm: builds xargs node with rm child (xargs)", () => {
+    test("parse xargs rm: builds wrapper node with rm inner (xargs)", () => {
         const source = "xargs rm";
-        expect(parseXargsNode(["xargs", "rm"], source, 0, source.length, true, new Map())).toEqual({
-            type: "xargs",
+        expect(parseWrapperNode(["xargs", "rm"], source, 0, source.length, true, new Map())).toEqual({
+            type: "command",
             source: "xargs rm",
+            commandName: "xargs",
             options: {},
+            positionals: [],
+            envPrefix: {},
             children: {
-                child: {
+                inner: {
                     type: "command",
                     commandName: "rm",
                     options: {},
@@ -3000,14 +3203,17 @@ describe("parseXargsNode", () => {
         });
     });
 
-    test("parse bare xargs: builds xargs node with empty child command (xargs-bare)", () => {
+    test("parse bare xargs: builds wrapper node with empty inner command (xargs-bare)", () => {
         const source = "xargs";
-        expect(parseXargsNode(["xargs"], source, 0, source.length, true, new Map())).toEqual({
-            type: "xargs",
+        expect(parseWrapperNode(["xargs"], source, 0, source.length, true, new Map())).toEqual({
+            type: "command",
             source: "xargs",
+            commandName: "xargs",
             options: {},
+            positionals: [],
+            envPrefix: {},
             children: {
-                child: {
+                inner: {
                     type: "command",
                     commandName: "",
                     options: {},
@@ -3021,12 +3227,15 @@ describe("parseXargsNode", () => {
 
     test("parse xargs boolean flag: consumes xargs options before subcommand (xargs-boolean-flag)", () => {
         const source = "xargs -0 rm";
-        expect(parseXargsNode(["xargs", "-0", "rm"], source, 0, source.length, true, new Map())).toEqual({
-            type: "xargs",
+        expect(parseWrapperNode(["xargs", "-0", "rm"], source, 0, source.length, true, new Map())).toEqual({
+            type: "command",
             source: "xargs -0 rm",
+            commandName: "xargs",
             options: { "0": true },
+            positionals: [],
+            envPrefix: {},
             children: {
-                child: {
+                inner: {
                     type: "command",
                     commandName: "rm",
                     options: {},
@@ -3040,12 +3249,15 @@ describe("parseXargsNode", () => {
 
     test("parse xargs end-of-options marker: starts subcommand after -- (xargs-end-marker)", () => {
         const source = "xargs -- grep";
-        expect(parseXargsNode(["xargs", "--", "grep"], source, 0, source.length, true, new Map())).toEqual({
-            type: "xargs",
+        expect(parseWrapperNode(["xargs", "--", "grep"], source, 0, source.length, true, new Map())).toEqual({
+            type: "command",
             source: "xargs -- grep",
+            commandName: "xargs",
             options: {},
+            positionals: [],
+            envPrefix: {},
             children: {
-                child: {
+                inner: {
                     type: "command",
                     commandName: "grep",
                     options: {},
@@ -3058,17 +3270,86 @@ describe("parseXargsNode", () => {
     });
 });
 
-describe("parseStatement xargs", () => {
+describe("isWrapperInvocation", () => {
 
-    test("parse xargs statement: returns xargs node instead of command (xargs)", () => {
+    test("xargs always wraps another command", () => {
+        expect(isWrapperInvocation(["xargs", "rm"], makeWrapperDescriptors())).toBe(true);
+    });
+
+    test("timeout always wraps another command", () => {
+        expect(isWrapperInvocation(["timeout", "30", "rm"], makeWrapperDescriptors())).toBe(true);
+    });
+
+    test("mise exec wraps another command", () => {
+        expect(isWrapperInvocation(["mise", "exec", "--", "bun", "run", "compile"], makeWrapperDescriptors())).toBe(true);
+    });
+
+    test("mise x wraps another command", () => {
+        expect(isWrapperInvocation(["mise", "x", "--", "bun"], makeWrapperDescriptors())).toBe(true);
+    });
+
+    test("mise exec behind a flag still wraps another command", () => {
+        expect(isWrapperInvocation(["mise", "--quiet", "exec", "--", "bun"], makeWrapperDescriptors())).toBe(true);
+    });
+
+    test("mise install runs no other command", () => {
+        expect(isWrapperInvocation(["mise", "install"], makeWrapperDescriptors())).toBe(false);
+    });
+
+    test("bare mise runs no other command", () => {
+        expect(isWrapperInvocation(["mise"], makeWrapperDescriptors())).toBe(false);
+    });
+
+    test("an ordinary command is not a wrapper", () => {
+        expect(isWrapperInvocation(["ls", "-la"], makeWrapperDescriptors())).toBe(false);
+    });
+});
+
+describe("splitWrapperArguments", () => {
+
+    test("takes no positionals for a wrapper that has none of its own", () => {
+        expect(splitWrapperArguments(["rm", "-f"], makeWrapperDef(0, []))).toEqual({
+            ownTokens: [],
+            innerTokens: ["rm", "-f"],
+        });
+    });
+
+    test("takes one positional for a wrapper that has one of its own", () => {
+        expect(splitWrapperArguments(["30", "bun", "run", "compile"], makeWrapperDef(1, []))).toEqual({
+            ownTokens: ["30"],
+            innerTokens: ["bun", "run", "compile"],
+        });
+    });
+
+    test("takes every token before an end-of-options marker", () => {
+        expect(splitWrapperArguments(["exec", "node@22", "--", "bun", "run"], makeMiseDef())).toEqual({
+            ownTokens: ["exec", "node@22"],
+            innerTokens: ["bun", "run"],
+        });
+    });
+
+    test("takes a flag value with its flag when the descriptor gives it arity one", () => {
+        expect(splitWrapperArguments(["-s", "KILL", "30", "rm"], makeWrapperDef(1, ["s"]))).toEqual({
+            ownTokens: ["-s", "KILL", "30"],
+            innerTokens: ["rm"],
+        });
+    });
+});
+
+describe("parseStatement wrapper", () => {
+
+    test("parse xargs statement: returns wrapper node instead of command (xargs)", () => {
         const source = "xargs rm";
         const tokenizer = new Tokenizer(source);
-        expect(parseStatement(tokenizer, source, new Map())).toEqual({
-            type: "xargs",
+        expect(parseStatement(tokenizer, source, makeWrapperDescriptors())).toEqual({
+            type: "command",
             source: "xargs rm",
+            commandName: "xargs",
             options: {},
+            positionals: [],
+            envPrefix: {},
             children: {
-                child: {
+                inner: {
                     type: "command",
                     commandName: "rm",
                     options: {},

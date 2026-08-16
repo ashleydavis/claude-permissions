@@ -1,0 +1,24 @@
+description: "bash: mise exec is allowed but the command it runs is denied, so the whole command is denied"
+input:
+  tool_name: Bash
+  tool_input:
+    command: mise exec -- rm -rf /
+  cwd: ${PROJECT_DIR}
+rules:
+  bash:
+    mise:
+      decide: allow
+    rm:
+      decide: deny
+expected:
+  decision: deny
+home_files:
+  .claude/permissions.d/commands/mise.yaml: |
+    mise:
+      description: mise-en-place tool version manager and task runner
+      cmds:
+        exec:
+          description: Execute a command with mise-managed tools on PATH
+          wrapper: true
+          positionals:
+            - variadic: true

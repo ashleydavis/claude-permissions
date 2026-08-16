@@ -14,9 +14,9 @@ graph TD
   n1["binop<br/>op: |"]
   n2["command<br/>binary: find<br/>cmd: ."]
   n1 --> n2
-  n3["xargs"]
+  n3["command<br/>binary: xargs"]
   n4["command<br/>binary: rm"]
-  n3 -->|child| n4
+  n3 -->|inner| n4
   n1 --> n3
   n0 --> n1
 ```
