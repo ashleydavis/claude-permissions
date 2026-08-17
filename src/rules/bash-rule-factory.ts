@@ -17,6 +17,9 @@ const COMMAND_RULE_FIELDS = new Set([
     "file",
     "sourceLocation",
     "not",
+    // Documentation only: example commands the rule is expected to match or miss.
+    // Carried through loading untouched so external tooling can test rules against real commands.
+    "examples",
 ]);
 
 // KNOWN_FIELDS lists YAML keys on a bash entry that are rule fields, not subcommand names.

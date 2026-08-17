@@ -121,6 +121,42 @@ All fields in a rule are AND'd.
 | `file: {"~/.kube/config": {contains: "current-context: sandbox"}}` | File exists and contains pattern |
 
 
+## Examples on a rule
+
+Any rule with `decide` can list example calls under the decision each one should produce. The engine ignores them; `bun run check-config <config-dir>` collects them and decides each one with the engine, failing when the decision differs.
+
+Examples are decided against a stand-in project directory, `/project`, not the config directory's parent. It does not have to exist, so examples read the same on every machine.
+
+```yaml
+bash:
+  terraform:
+    cwd: "${{PROJECT_DIR}}/**"
+    decide: allow
+    examples:
+      allow:
+        # String form: a command, run in the stand-in project directory.
+        - terraform plan
+      ask:
+        # Object form: a command plus the working directory it runs in.
+        - cmd: terraform plan
+          cwd: ../outside-the-project
+
+read:
+  path: "${{PROJECT_DIR}}/**"
+  decide: allow
+  examples:
+    allow:
+      # Read/Write/Edit match file_path exactly as given, so name it in full.
+      - read /project/src/index.ts
+```
+
+- Bash examples use relative paths, because they run in `/project` unless the example names its own `cwd`, and a relative `cwd` resolves against it too
+- `${{PROJECT_DIR}}` expands to `/project` while checking, and `${{HOME}}` expands as well, in both `cmd` and `cwd`
+- Every rule with `decide` needs at least one example listed under that same decision, or `check-config` fails
+
+Full details in [CONFIGURATION.md](CONFIGURATION.md#rule-examples).
+
+
 ## Redirect path rules
 
 Shell redirects write to or read from file paths. Match those paths globally without a separate rule for each command (`echo`, `tee`, `cat`, and similar).

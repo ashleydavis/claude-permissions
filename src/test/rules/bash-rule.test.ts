@@ -1782,6 +1782,26 @@ describe("BashRuleFactory.loadCommandRule", () => {
         expect(() => new BashRuleFactory().loadCommandRule(parseYaml("decide: deny\ncwd_resolved: true"), "rm", [], "deny")).toThrow("permissions.yaml: bash.rm unknown field 'cwd_resolved'");
     });
 
+    test("accepts and ignores examples", async () => {
+        const rule = new BashRuleFactory().loadCommandRule(
+            parseYaml("decide: allow\nexamples:\n  allow:\n    - git log --oneline\n  ask:\n    - cmd: git log\n      cwd: /tmp"),
+            "git",
+            ["log"],
+            "allow"
+        );
+        const expectedRule = new BashRule("git", "allow", undefined, undefined, undefined, undefined);
+        expectedRule.subcommandPath = ["log"];
+        expect(rule).toEqual(expectedRule);
+    });
+
+    test("throws when examples sits beside subcommand names", async () => {
+        expect(() => new BashRuleFactory().loadBashEntry(
+            parseYaml("examples:\n  allow:\n    - npm ls\nls:\n  decide: allow"),
+            "npm",
+            []
+        )).toThrow("permissions.yaml: bash.npm unknown field 'examples'");
+    });
+
     test("throws when options is not an array or object", async () => {
         expect(() => new BashRuleFactory().loadCommandRule(parseYaml("decide: deny\noptions: true"), "rm", [], "deny")).toThrow("permissions.yaml: bash.rm options must be an array or object");
     });

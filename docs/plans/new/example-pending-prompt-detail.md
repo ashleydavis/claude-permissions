@@ -9,7 +9,7 @@ decision: ASK
 source: matched rule
 rule: .claude/permissions.yaml:12
 reason: "network access requires approval"
-project directory: /home/ash/claude-permissions
+project directory: /home/ash/expressive-permissions
 
 cmd: curl https://api.internal.corp/v1/deploy
 command directory: /tmp
@@ -27,7 +27,7 @@ export AWS_PROFILE=prod && cd /tmp && curl https://api.internal.corp/v1/deploy
 
 ## Context
 
-/home/ash/claude-permissions
+/home/ash/expressive-permissions
 
 ## Parsed command tree
 

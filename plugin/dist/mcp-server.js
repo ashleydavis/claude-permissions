@@ -23444,7 +23444,8 @@ var COMMAND_RULE_FIELDS = new Set([
   "options-in",
   "file",
   "sourceLocation",
-  "not"
+  "not",
+  "examples"
 ]);
 var KNOWN_FIELDS = new Set([
   ...COMMAND_RULE_FIELDS,
@@ -24103,7 +24104,8 @@ var FILE_TOOL_DECIDE_FIELDS = new Set([
   "path",
   "path-in",
   "cwd",
-  "sourceLocation"
+  "sourceLocation",
+  "examples"
 ]);
 var FILE_TOOL_KNOWN_FIELDS = new Set([
   ...FILE_TOOL_DECIDE_FIELDS,
@@ -24427,7 +24429,8 @@ var REDIRECT_OUT_DECIDE_FIELDS = new Set([
   "reason",
   "path",
   "path-in",
-  "sourceLocation"
+  "sourceLocation",
+  "examples"
 ]);
 
 class RedirectOutOrderedRule {
@@ -24487,7 +24490,8 @@ var REDIRECT_IN_DECIDE_FIELDS = new Set([
   "reason",
   "path",
   "path-in",
-  "sourceLocation"
+  "sourceLocation",
+  "examples"
 ]);
 
 class RedirectInOrderedRule {

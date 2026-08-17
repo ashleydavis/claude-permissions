@@ -220,6 +220,19 @@ describe("FileToolRuleFactory.load", () => {
         ]);
     });
 
+    test("accepts and ignores examples", async () => {
+        expect(new FileToolRuleFactory("read").load({
+            path: "/project/**",
+            decide: "allow",
+            examples: {
+                allow: ["read /project/readme.md"],
+                ask: ["read /etc/hosts"],
+            },
+        })).toEqual([
+            new FileToolRule("read", ["/project/**"], "allow", undefined, undefined),
+        ]);
+    });
+
 });
 
 describe("FileToolRuleFactory.loadSubrules", () => {

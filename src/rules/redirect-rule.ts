@@ -20,6 +20,8 @@ const REDIRECT_OUT_DECIDE_FIELDS = new Set([
     "path",
     "path-in",
     "sourceLocation",
+    // Documentation only: example redirects the rule is expected to match or miss.
+    "examples",
 ]);
 
 // IRedirectOutEntry holds one redirect.out entry loaded for ordered evaluation.
@@ -123,6 +125,8 @@ const REDIRECT_IN_DECIDE_FIELDS = new Set([
     "path",
     "path-in",
     "sourceLocation",
+    // Documentation only: example redirects the rule is expected to match or miss.
+    "examples",
 ]);
 
 // IRedirectInEntry holds one redirect.in entry loaded for ordered evaluation.

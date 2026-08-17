@@ -160,19 +160,19 @@ Examples to test
 
 To test
 
-cat /home/ash/projects/claude-permissions/.gitignore 2>/dev/null || echo "(no .gitignore)"
+cat /home/ash/projects/expressive-permissions/.gitignore 2>/dev/null || echo "(no .gitignore)"
 
-ls /home/ash/projects/claude-permissions/e2e/bash/ | grep bun
+ls /home/ash/projects/expressive-permissions/e2e/bash/ | grep bun
 
-find /home/ash/projects/claude-permissions/e2e -maxdepth 2 -name "*.yaml" -not -path "*/fixtures/*" | sort | head -20
+find /home/ash/projects/expressive-permissions/e2e -maxdepth 2 -name "*.yaml" -not -path "*/fixtures/*" | sort | head -20
 
-find /home/ash/projects/claude-permissions/e2e -name "*.yaml" -not -path "*/fixtures/*" | wc -l && find /home/ash/projects/claude-permissions/e2e -maxdepth 2 -mindepth 2 -type d | wc -l
+find /home/ash/projects/expressive-permissions/e2e -name "*.yaml" -not -path "*/fixtures/*" | wc -l && find /home/ash/projects/expressive-permissions/e2e -maxdepth 2 -mindepth 2 -type d | wc -l
 
-find /home/ash/projects/claude-permissions/e2e/bash/bash-git-diff-echo-and-allow -name "permissions.yaml" | xargs cat -n
+find /home/ash/projects/expressive-permissions/e2e/bash/bash-git-diff-echo-and-allow -name "permissions.yaml" | xargs cat -n
 
-grep -n "logger.log" /home/ash/projects/claude-permissions/src/interpret.ts
+grep -n "logger.log" /home/ash/projects/expressive-permissions/src/interpret.ts
 
-grep -C 10 "function loadConfig" /home/ash/projects/claude-permissions/src/load-config.ts | head -30
+grep -C 10 "function loadConfig" /home/ash/projects/expressive-permissions/src/load-config.ts | head -30
 
 git stash list && git diff HEAD -- src/test/post-hook.test.ts | head -5
 
@@ -180,12 +180,12 @@ bun run compile 2>&1 && bun run test 2>&1 | tail -8
 
 bun run test 2>&1 | grep "FAIL\|●" | head -20
 
-08:20:57  TOOL     Bash      "git -C /home/ash/projects/claude-permissions diff --name-only && echo "---staged---" && git -C /home/ash/projects/claude-permissions diff --cached --name-only"
-08:20:57  NODE               "git -C /home/ash/projects/claude-permissions diff --name-only && echo "---staged---"" → ask
-08:20:57  NODE               "git -C /home/ash/projects/claude-permissions diff --name-only && echo "---staged---" && git -C /home/ash/projects/claude-permissions diff --cached --name-only" → ask
-08:20:57  NODE               "git -C /home/ash/projects/claude-permissions diff --name-only && echo "---staged---" && git -C /home/ash/projects/claude-permissions diff --cached --name-only" → ask
-08:20:57  RESULT   Bash      "git -C /home/ash/projects/claude-permissions diff --name-only && echo "---staged---" && git -C /home/ash/projects/claude-permissions diff --cached --name-only" → ASK
-08:21:00  EXECUTE  Bash      "git -C /home/ash/projects/claude-permissions diff --name-only && echo "---staged---" && git -C /home/ash/projects/claude-permissions diff --cached --name-only"
+08:20:57  TOOL     Bash      "git -C /home/ash/projects/expressive-permissions diff --name-only && echo "---staged---" && git -C /home/ash/projects/expressive-permissions diff --cached --name-only"
+08:20:57  NODE               "git -C /home/ash/projects/expressive-permissions diff --name-only && echo "---staged---"" → ask
+08:20:57  NODE               "git -C /home/ash/projects/expressive-permissions diff --name-only && echo "---staged---" && git -C /home/ash/projects/expressive-permissions diff --cached --name-only" → ask
+08:20:57  NODE               "git -C /home/ash/projects/expressive-permissions diff --name-only && echo "---staged---" && git -C /home/ash/projects/expressive-permissions diff --cached --name-only" → ask
+08:20:57  RESULT   Bash      "git -C /home/ash/projects/expressive-permissions diff --name-only && echo "---staged---" && git -C /home/ash/projects/expressive-permissions diff --cached --name-only" → ASK
+08:21:00  EXECUTE  Bash      "git -C /home/ash/projects/expressive-permissions diff --name-only && echo "---staged---" && git -C /home/ash/projects/expressive-permissions diff --cached --name-only"
 
 
 ---
@@ -194,34 +194,34 @@ Why does these come back as ask?
 
 Prog:
 
-08:05:44  TOOL     Bash      "grep -r "from.*rules" /home/ash/projects/claude-permissions/src --include="*.ts" -n | grep -v node_modules | grep -v test"
-08:05:44  NODE               "grep -r "from.*rules" /home/ash/projects/claude-permissions/src --include="*.ts" -n | grep -v node_modules" → ask
-08:05:44  NODE               "grep -r "from.*rules" /home/ash/projects/claude-permissions/src --include="*.ts" -n | grep -v node_modules | grep -v test" → ask
-08:05:44  NODE               "grep -r "from.*rules" /home/ash/projects/claude-permissions/src --include="*.ts" -n | grep -v node_modules | grep -v test" → ask
-08:05:44  RESULT   Bash      "grep -r "from.*rules" /home/ash/projects/claude-permissions/src --include="*.ts" -n | grep -v node_modules | grep -v test" → ASK
-08:05:57  EXECUTE  Bash      "grep -n "export function decide\|export const decide" /home/ash/projects/claude-permissions/src/interpret.ts"
+08:05:44  TOOL     Bash      "grep -r "from.*rules" /home/ash/projects/expressive-permissions/src --include="*.ts" -n | grep -v node_modules | grep -v test"
+08:05:44  NODE               "grep -r "from.*rules" /home/ash/projects/expressive-permissions/src --include="*.ts" -n | grep -v node_modules" → ask
+08:05:44  NODE               "grep -r "from.*rules" /home/ash/projects/expressive-permissions/src --include="*.ts" -n | grep -v node_modules | grep -v test" → ask
+08:05:44  NODE               "grep -r "from.*rules" /home/ash/projects/expressive-permissions/src --include="*.ts" -n | grep -v node_modules | grep -v test" → ask
+08:05:44  RESULT   Bash      "grep -r "from.*rules" /home/ash/projects/expressive-permissions/src --include="*.ts" -n | grep -v node_modules | grep -v test" → ASK
+08:05:57  EXECUTE  Bash      "grep -n "export function decide\|export const decide" /home/ash/projects/expressive-permissions/src/interpret.ts"
 
 Waiting:
 
-08:06:49  TOOL     Bash      "grep -n "Rule\[" /home/ash/projects/claude-permissions/src/types.ts | head -20"
-08:06:49  NODE               "grep -n "Rule\[" /home/ash/projects/claude-permissions/src/types.ts | head -20" → ask
-08:06:49  NODE               "grep -n "Rule\[" /home/ash/projects/claude-permissions/src/types.ts | head -20" → ask
-08:06:49  RESULT   Bash      "grep -n "Rule\[" /home/ash/projects/claude-permissions/src/types.ts | head -20" → ASK
-08:06:55  EXECUTE  Bash      "grep -n "function compileConfig\|export function compileConfig" /home/ash/projects/claude-permissions/src/load-config.ts"
+08:06:49  TOOL     Bash      "grep -n "Rule\[" /home/ash/projects/expressive-permissions/src/types.ts | head -20"
+08:06:49  NODE               "grep -n "Rule\[" /home/ash/projects/expressive-permissions/src/types.ts | head -20" → ask
+08:06:49  NODE               "grep -n "Rule\[" /home/ash/projects/expressive-permissions/src/types.ts | head -20" → ask
+08:06:49  RESULT   Bash      "grep -n "Rule\[" /home/ash/projects/expressive-permissions/src/types.ts | head -20" → ASK
+08:06:55  EXECUTE  Bash      "grep -n "function compileConfig\|export function compileConfig" /home/ash/projects/expressive-permissions/src/load-config.ts"
 
 
-08:09:34  TOOL     Bash      "head -100 /home/ash/projects/claude-permissions/src/interpret.ts | tail -50"
-08:09:34  NODE               "head -100 /home/ash/projects/claude-permissions/src/interpret.ts | tail -50" → ask
-08:09:34  NODE               "head -100 /home/ash/projects/claude-permissions/src/interpret.ts | tail -50" → ask
-08:09:34  RESULT   Bash      "head -100 /home/ash/projects/claude-permissions/src/interpret.ts | tail -50" → ASK
+08:09:34  TOOL     Bash      "head -100 /home/ash/projects/expressive-permissions/src/interpret.ts | tail -50"
+08:09:34  NODE               "head -100 /home/ash/projects/expressive-permissions/src/interpret.ts | tail -50" → ask
+08:09:34  NODE               "head -100 /home/ash/projects/expressive-permissions/src/interpret.ts | tail -50" → ask
+08:09:34  RESULT   Bash      "head -100 /home/ash/projects/expressive-permissions/src/interpret.ts | tail -50" → ASK
 
-08:10:46  TOOL     Bash      "find /home/ash/projects/claude-permissions -name "*.sh" -o -name "*.yaml" | grep -i smoke | head -20"
-08:10:46  NODE               "find /home/ash/projects/claude-permissions -name "*.sh" -o -name "*.yaml" | grep -i smoke" → ask
-08:10:46  NODE               "find /home/ash/projects/claude-permissions -name "*.sh" -o -name "*.yaml" | grep -i smoke | head -20" → ask
-08:10:46  NODE               "find /home/ash/projects/claude-permissions -name "*.sh" -o -name "*.yaml" | grep -i smoke | head -20" → ask
-08:10:46  RESULT   Bash      "find /home/ash/projects/claude-permissions -name "*.sh" -o -name "*.yaml" | grep -i smoke | head -20" → ASK
+08:10:46  TOOL     Bash      "find /home/ash/projects/expressive-permissions -name "*.sh" -o -name "*.yaml" | grep -i smoke | head -20"
+08:10:46  NODE               "find /home/ash/projects/expressive-permissions -name "*.sh" -o -name "*.yaml" | grep -i smoke" → ask
+08:10:46  NODE               "find /home/ash/projects/expressive-permissions -name "*.sh" -o -name "*.yaml" | grep -i smoke | head -20" → ask
+08:10:46  NODE               "find /home/ash/projects/expressive-permissions -name "*.sh" -o -name "*.yaml" | grep -i smoke | head -20" → ask
+08:10:46  RESULT   Bash      "find /home/ash/projects/expressive-permissions -name "*.sh" -o -name "*.yaml" | grep -i smoke | head -20" → ASK
 
-08:11:54  TOOL     Bash      "cat /home/ash/projects/claude-permissions/package.json | grep -A 20 '"scripts"'"
-08:11:55  NODE               "cat /home/ash/projects/claude-permissions/package.json | grep -A 20 '"scripts"'" → ask
-08:11:55  NODE               "cat /home/ash/projects/claude-permissions/package.json | grep -A 20 '"scripts"'" → ask
-08:11:55  RESULT   Bash      "cat /home/ash/projects/claude-permissions/package.json | grep -A 20 '"scripts"'" → ASK
+08:11:54  TOOL     Bash      "cat /home/ash/projects/expressive-permissions/package.json | grep -A 20 '"scripts"'"
+08:11:55  NODE               "cat /home/ash/projects/expressive-permissions/package.json | grep -A 20 '"scripts"'" → ask
+08:11:55  NODE               "cat /home/ash/projects/expressive-permissions/package.json | grep -A 20 '"scripts"'" → ask
+08:11:55  RESULT   Bash      "cat /home/ash/projects/expressive-permissions/package.json | grep -A 20 '"scripts"'" → ASK

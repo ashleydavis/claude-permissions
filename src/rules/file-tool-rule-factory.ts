@@ -10,6 +10,8 @@ const FILE_TOOL_DECIDE_FIELDS = new Set([
     "path-in",
     "cwd",
     "sourceLocation",
+    // Documentation only: example tool calls the rule is expected to match or miss.
+    "examples",
 ]);
 
 // FILE_TOOL_KNOWN_FIELDS lists YAML keys on a file tool entry that are rule fields.

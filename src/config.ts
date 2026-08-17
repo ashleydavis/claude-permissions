@@ -25,6 +25,24 @@ export interface IFileFieldMap {
     [filePath: string]: true | IFileMatch;
 }
 
+// IExampleCall is one example tool call written against a rule, with the working directory it runs in.
+export interface IExampleCall {
+
+    // The command or prefixed tool call, written as it would be typed into the REPL.
+    cmd: string;
+
+    // Working directory the example runs in; the project directory when absent.
+    cwd?: string;
+}
+
+// IExampleMap maps a decision ("allow", "deny", "ask") to the example calls expected to produce it.
+// The engine never reads this field: it documents a rule and lets external tooling test the rule
+// against real commands.
+export interface IExampleMap {
+
+    [decision: string]: (string | IExampleCall)[];
+}
+
 // INotFields lists conditions that suppress a rule when they all match.
 export interface INotFields {
 
@@ -86,11 +104,14 @@ export interface IBashEntry {
     // Nested entries evaluated at the same subcommand path.
     rules?: IBashEntry[];
 
+    // Example commands this rule is expected to match or miss; ignored by the engine.
+    examples?: IExampleMap;
+
     // Source file and line stamped onto the entry during YAML loading.
     sourceLocation?: ISourceLocation;
 
     // Subcommand names nested under this entry.
-    [subcommandKey: string]: string | string[] | IEnvVarMap | IFileFieldMap | INotFields | IBashEntry | IBashEntry[] | IOptionPatternMap | ISourceLocation | undefined;
+    [subcommandKey: string]: string | string[] | IEnvVarMap | IFileFieldMap | INotFields | IBashEntry | IBashEntry[] | IOptionPatternMap | IExampleMap | ISourceLocation | undefined;
 }
 
 // IBashTerminalEntry is a bash entry with a required decide field.
@@ -128,6 +149,9 @@ export interface IFileToolEntry {
     // Nested entries evaluated when parent conditions match.
     rules?: IFileToolEntry[];
 
+    // Example tool calls this rule is expected to match or miss; ignored by the engine.
+    examples?: IExampleMap;
+
     // Source file and line stamped onto the entry during YAML loading.
     sourceLocation?: ISourceLocation;
 }
@@ -147,6 +171,9 @@ export interface IWebFetchConfig {
     // Human-readable reason shown when the rule fires.
     reason?: string;
 
+    // Example tool calls this rule is expected to match or miss; ignored by the engine.
+    examples?: IExampleMap;
+
     // Source file and line stamped onto the entry during YAML loading.
     sourceLocation?: ISourceLocation;
 }
@@ -159,6 +186,9 @@ export interface IGrepConfig {
 
     // Human-readable reason shown when the rule fires.
     reason?: string;
+
+    // Example tool calls this rule is expected to match or miss; ignored by the engine.
+    examples?: IExampleMap;
 
     // Source file and line stamped onto the entry during YAML loading.
     sourceLocation?: ISourceLocation;
@@ -178,6 +208,9 @@ export interface IRedirectEntry {
 
     // Human-readable reason shown when the rule fires.
     reason?: string;
+
+    // Example redirects this rule is expected to match or miss; ignored by the engine.
+    examples?: IExampleMap;
 
     // Source file and line stamped onto the entry during YAML loading.
     sourceLocation?: ISourceLocation;
@@ -207,6 +240,9 @@ export interface IGenericToolConfig {
 
     // Human-readable reason shown when the rule fires.
     reason?: string;
+
+    // Example tool calls this rule is expected to match or miss; ignored by the engine.
+    examples?: IExampleMap;
 
     // Source file and line stamped onto the entry during YAML loading.
     sourceLocation?: ISourceLocation;

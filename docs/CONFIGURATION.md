@@ -30,6 +30,7 @@ This doc explains the configuration of your permissions rules.
 - [Strictest wins](#strictest-wins)
 - [Field form reference](#field-form-reference)
 - [Field reference](#field-reference)
+- [Rule examples](#rule-examples)
 
 
 ## Structure overview
@@ -1093,7 +1094,71 @@ Every field follows this unified pattern:
 | `host-in` | array | webfetch | Host matches any entry (OR). |
 | `tool` | string | generic tool rule | Glob match against the full tool name (e.g. `mcp__github__list_repos`). Use `mcp__*__list_*` to match all list operations across any server. When set, replaces the YAML key as the matcher; the key becomes a label only. |
 | `tool-in` | array | generic tool rule | Tool name matches any entry (OR). When set, replaces the YAML key as the matcher; the key becomes a label only. |
+| `examples` | object | any rule with `decide` | Example tool calls, listed under the decision each one should produce. The engine loads it and ignores it. See [Rule examples](#rule-examples). |
 
 `path` / `path-in` on file-tool sections match tool input paths. Under `redirect.out` / `redirect.in`, they match redirect file targets.
 
 For debugging unmatched rules, the REPL, and the MCP analyzer, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+
+
+## Rule examples
+
+Any rule that carries a `decide` can also carry an `examples` block: real tool calls, listed under the decision each one is expected to produce. The engine parses the block, checks nothing in it, and never matches against it. It is there so a rule can record what it covers, and so those calls can be decided again later, failing when a rule stops doing what it says.
+
+`bun run check-config <config-dir>` does the deciding. It calls the engine directly (not the REPL), decides every collected example, and fails when a decision differs from the one the example was listed under, or when a rule carries no example at all. `<config-dir>` is the directory whose `.claude` holds `permissions.yaml` and `permissions.d`, and the rules load from there. The `.claude` directory itself may be passed in its place. `--filter <text>` checks only the examples whose command or file contains the text, and `--list` prints the collected examples without checking them.
+
+The calls themselves are decided against a stand-in project directory, `/project`, wherever the config was loaded from. That is what `${{PROJECT_DIR}}` expands to while checking, what a relative `cwd` resolves against, and the working directory an example runs in unless it names its own. It does not have to exist, so an example names files the way a person would rather than naming one machine's directories.
+
+```yaml
+bash:
+  git:
+    branch:
+      not:
+        options-in: [u|set-upstream, set-upstream-to, unset-upstream, edit-description]
+      decide: allow
+      reason: Readonly git access (lists branches)
+      examples:
+        allow:
+          - git branch
+          - git branch --show-current
+        ask:
+          - git branch --set-upstream-to origin/main
+```
+
+The decision keys are `allow`, `deny` and `ask`. List under `allow` or `deny` the calls this rule is meant to decide, and under `ask` the near misses it deliberately leaves alone (nothing matches them, so they fall through to the default prompt).
+
+Each entry is either a command string, or an object with `cmd` and the working directory the call is made from:
+
+```yaml
+      examples:
+        allow:
+          - terraform plan
+          - cmd: terraform plan
+            cwd: infra
+        ask:
+          - cmd: terraform plan
+            cwd: /tmp
+```
+
+A relative `cwd` resolves against the stand-in project, so `cwd: infra` above means `/project/infra`. An absolute `cwd` is used as written. Prefer the relative form: it keeps an example off any one machine's paths, and the directory does not have to exist.
+
+Keep the command itself off machine-specific paths too. A Bash path positional resolves against the working directory the example runs in, so write bash paths relative: `cat readme.md` reads the stand-in project's own readme without naming an absolute path.
+
+Non-Bash rules use the prefix syntax the [REPL](REPL.md) takes, so the example reads the same way you would type it there:
+
+```yaml
+read:
+  path: "${{PROJECT_DIR}}/**"
+  decide: allow
+  examples:
+    allow:
+      - read /project/src/index.ts
+    ask:
+      - read /etc/hosts
+```
+
+`read`, `write` and `edit` rules match `file_path` exactly as the example gives it, with no resolving against the working directory, so those examples name an absolute path under the stand-in project, for example `read /project/src/index.ts`. `${{PROJECT_DIR}}` still belongs in the rules themselves, where it expands to whatever project the engine is running in. It is the examples that no longer need it, because `/project` is already the only project they are decided against.
+
+`examples` is a rule field, so (like `reason` or `env`) it cannot sit beside subcommand names: put it on the nested rule that carries the `decide`, not on the block that holds the subcommands.
+
+A configuration whose rules carry these blocks, ready to check with the command above, lives in [agent-config](https://github.com/ashleydavis/agent-config).
