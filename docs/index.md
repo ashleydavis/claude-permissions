@@ -17,7 +17,7 @@ It converts each tool call into an abstract syntax tree (AST), threads a simulat
 - [Audit log](AUDIT-LOG.md) - Audit log format and retention policy for the machine-readable and human-readable logs.
 - [Pending approvals](PENDING-APPROVALS.md) - Markdown files written when Claude asks you to approve a tool call; open these while deciding on a prompt.
 - [Cursor](CURSOR.md) - Disable this plugin in Cursor: turn off third-party Claude hook import (Cursor mishandles those hooks).
-- [Troubleshooting](TROUBLESHOOTING.md) - Troubleshooting rules: pending approval files, audit log, interactive REPL, and MCP server.
+- [Troubleshooting](TROUBLESHOOTING.md) - Troubleshooting rules: pending approval files, audit log, interactive REPL, and MCP server. Includes how to skip the plugin in one project via `EXPRESSIVE_PERMISSIONS`.
 - [REPL](REPL.md) - Interactive REPL for testing commands against your `permissions.yaml`.
 - [MCP server](MCP-SERVER.md) - MCP server that lets Claude explain permission decisions in natural language.
 - [Development](DEVELOPMENT.md) - Instructions on cloning, building, and running the plugin locally.

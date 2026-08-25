@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync, readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { homedir, tmpdir } from "os";
-import { readStdin, resolveHomeDir, runHook } from "../pre-hook";
+import { readStdin, resolveHomeDir, runHook, expressivePermissionsDisabled } from "../pre-hook";
 import * as decisionModule from "../decision";
 import { resolvePendingDir } from "../pending-prompt-log";
 import { resolveLogBaseDir } from "../audit-log";
@@ -109,12 +109,40 @@ describe("readStdin", () => {
     });
 });
 
+describe("expressivePermissionsDisabled", () => {
+    const original = process.env["EXPRESSIVE_PERMISSIONS"];
+
+    afterEach(() => {
+        if (original === undefined) {
+            delete process.env["EXPRESSIVE_PERMISSIONS"];
+        }
+        else {
+            process.env["EXPRESSIVE_PERMISSIONS"] = original;
+        }
+    });
+
+    test("is false when the env var is unset", () => {
+        delete process.env["EXPRESSIVE_PERMISSIONS"];
+        expect(expressivePermissionsDisabled()).toBe(false);
+    });
+
+    test("is true for off, 0, and false", () => {
+        process.env["EXPRESSIVE_PERMISSIONS"] = "off";
+        expect(expressivePermissionsDisabled()).toBe(true);
+        process.env["EXPRESSIVE_PERMISSIONS"] = "0";
+        expect(expressivePermissionsDisabled()).toBe(true);
+        process.env["EXPRESSIVE_PERMISSIONS"] = "false";
+        expect(expressivePermissionsDisabled()).toBe(true);
+    });
+});
+
 describe("runHook", () => {
     let exitSpy: jest.SpyInstance;
     let stderrSpy: jest.SpyInstance;
     let stdoutSpy: jest.SpyInstance;
     let originalProjectDir: string | undefined;
     let originalHome: string | undefined;
+    let originalExpressivePermissions: string | undefined;
 
     beforeEach(() => {
         exitSpy = jest.spyOn(process, "exit").mockImplementation(jest.fn() as any);
@@ -122,7 +150,9 @@ describe("runHook", () => {
         stdoutSpy = jest.spyOn(process.stdout, "write").mockImplementation(() => true);
         originalProjectDir = process.env["CLAUDE_PROJECT_DIR"];
         originalHome = process.env["HOME"];
+        originalExpressivePermissions = process.env["EXPRESSIVE_PERMISSIONS"];
         process.env["CLAUDE_PROJECT_DIR"] = tmpdir();
+        delete process.env["EXPRESSIVE_PERMISSIONS"];
     });
 
     afterEach(() => {
@@ -140,6 +170,12 @@ describe("runHook", () => {
         }
         else {
             process.env["HOME"] = originalHome;
+        }
+        if (originalExpressivePermissions === undefined) {
+            delete process.env["EXPRESSIVE_PERMISSIONS"];
+        }
+        else {
+            process.env["EXPRESSIVE_PERMISSIONS"] = originalExpressivePermissions;
         }
     });
 
@@ -192,6 +228,22 @@ describe("runHook", () => {
             rmSync(homeDir, { recursive: true, force: true });
             rmSync(projectDir, { recursive: true, force: true });
         }
+    });
+
+    test("EXPRESSIVE_PERMISSIONS=off allows without loading rules", async () => {
+        delete process.env["CLAUDE_PROJECT_DIR"];
+        process.env["EXPRESSIVE_PERMISSIONS"] = "off";
+        setStdin(createMockStdin(JSON.stringify({
+            tool_name: "Bash",
+            tool_input: { command: "python app.py" },
+            cwd: "/tmp",
+        })));
+        await runHook();
+        const written = stdoutSpy.mock.calls[0][0] as string;
+        const parsed = JSON.parse(written) as { hookSpecificOutput: { permissionDecision: string; permissionDecisionReason?: string } };
+        expect(parsed.hookSpecificOutput.permissionDecision).toBe("allow");
+        expect(parsed.hookSpecificOutput.permissionDecisionReason).toBe("EXPRESSIVE_PERMISSIONS is off");
+        expect(exitSpy).toHaveBeenCalledWith(0);
     });
 
     test("project permissions.d/aws.yaml deny rule is honoured end-to-end via runHook", async () => {

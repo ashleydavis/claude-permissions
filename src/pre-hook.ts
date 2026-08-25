@@ -30,6 +30,18 @@ export function resolveHomeDir(): string {
     return homedir();
 }
 
+// A project can skip this plugin without disabling every Claude hook: set
+// EXPRESSIVE_PERMISSIONS=off (or 0 / false) in that repo's .claude/settings.json
+// or .claude/settings.local.json env block. bypassPermissions does not skip hooks.
+export function expressivePermissionsDisabled(): boolean {
+    const value = process.env["EXPRESSIVE_PERMISSIONS"];
+    if (value === undefined) {
+        return false;
+    }
+    const normalized = value.trim().toLowerCase();
+    return normalized === "off" || normalized === "0" || normalized === "false";
+}
+
 // readStdin reads all of stdin and returns it as a UTF-8 string.
 export async function readStdin(): Promise<string> {
     const chunks: Buffer[] = [];
@@ -47,6 +59,19 @@ export async function runHook(): Promise<void> {
     try {
         const rawStdin = await readStdin();
         const call = JSON.parse(rawStdin) as IToolCall;
+        if (expressivePermissionsDisabled()) {
+            process.stdout.write(
+                JSON.stringify({
+                    hookSpecificOutput: {
+                        hookEventName,
+                        permissionDecision: "allow",
+                        permissionDecisionReason: "EXPRESSIVE_PERMISSIONS is off",
+                    },
+                }) + "\n"
+            );
+            process.exit(0);
+            return;
+        }
         const projectDir = process.env["CLAUDE_PROJECT_DIR"];
         if (!projectDir) {
             throw new Error("CLAUDE_PROJECT_DIR is not set");

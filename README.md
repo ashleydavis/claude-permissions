@@ -178,6 +178,25 @@ Add the block above to `.claude/settings.json` in your project root. Place your 
 
 With either (or both) in place, every tool call flows through your permissions rules and nothing prompts twice.
 
+### Disable the plugin in one project
+
+Claude Code's `bypassPermissions` mode does **not** skip this plugin's hooks. A project that wants allow-all still needs the plugin itself turned off.
+
+Set `EXPRESSIVE_PERMISSIONS` to `off`, `0`, or `false`. The pre-hook then returns allow without loading rules. Any other value, or leaving it unset, keeps the plugin on.
+
+Put it in that project's `.claude/settings.local.json` so it stays local and out of git:
+
+```json
+{
+  "env": {
+    "EXPRESSIVE_PERMISSIONS": "off"
+  }
+}
+```
+
+Pair it with `"permissions": { "defaultMode": "bypassPermissions" }` in the same file if you also want Claude's own prompts gone. Start a new Claude Code session after changing it. `disableAllHooks: true` also stops the plugin, but it stops every other hook in that repo too.
+
+
 ## Quick start: adding a rule
 
 Add to `.claude/permissions.yaml` in your project root (or `~/.claude/permissions.yaml` for user-global rules). Configuration is reloaded automatically on the next hook run.
