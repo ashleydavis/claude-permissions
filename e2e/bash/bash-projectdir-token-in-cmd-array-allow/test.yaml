@@ -1,0 +1,24 @@
+description: "bash: array-form cmd pattern ${{PROJECT_DIR}} expands and matches a positional inside the project"
+
+input:
+  tool_name: Bash
+  tool_input:
+    command: "git worktree remove ${PROJECT_DIR}/.claude/worktrees/feature"
+  cwd: ${PROJECT_DIR}
+
+rules: {}
+
+home_dir_files:
+  bash-cmd-array-projectdir.yaml:
+    bash:
+      git:
+        worktree:
+          cmd:
+            - "remove"
+            - "${{PROJECT_DIR}}/.claude/worktrees/*"
+          decide: allow
+          reason: "remove a worktree of this project"
+
+expected:
+  decision: allow
+  reason: "remove a worktree of this project"

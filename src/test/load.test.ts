@@ -3,7 +3,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { CapturingAuditLogger, IConfigLoadEntry, NullAuditLogger } from "../audit-log";
-import { IPermissionsConfig } from "../config";
+import { IBashConfig, IConfigPaths, IPermissionsConfig } from "../config";
 import { load, loadConfigFile, loadSection } from "../load";
 import { builtinRules } from "../rules/builtin";
 import { BashRule } from "../rules/bash-rule";
@@ -18,6 +18,7 @@ import { GrepRuleFactory } from "../rules/grep-rule-factory";
 import { GenericToolRule } from "../rules/generic-tool-rule";
 import { GenericToolRuleFactory } from "../rules/generic-tool-rule-factory";
 import { IRule } from "../rules/rule";
+import { testConfigPaths } from "./test-config-paths";
 
 // ILoadedRules is the return value of load().
 interface ILoadedRules {
@@ -73,13 +74,13 @@ async function loadWithHome(projectDir: string): Promise<ReturnType<typeof load>
 describe("BashRuleFactory.load", () => {
 
     test("adds nothing when section is absent", async () => {
-        expect(loadSection({}, "bash", new BashRuleFactory())).toEqual([]);
+        expect(loadSection({}, "bash", new BashRuleFactory(testConfigPaths))).toEqual([]);
     });
 
     test("throws when section is not an object", () => {
-        expect(() => new BashRuleFactory().load(parseYaml("invalid"))).toThrow("permissions.yaml: bash must be an object");
-        expect(() => new BashRuleFactory().load(parseYaml("null"))).toThrow("permissions.yaml: bash must be an object");
-        expect(() => new BashRuleFactory().load(parseYaml("[]"))).toThrow("permissions.yaml: bash must be an object");
+        expect(() => new BashRuleFactory(testConfigPaths).load(parseYaml("invalid"))).toThrow("permissions.yaml: bash must be an object");
+        expect(() => new BashRuleFactory(testConfigPaths).load(parseYaml("null"))).toThrow("permissions.yaml: bash must be an object");
+        expect(() => new BashRuleFactory(testConfigPaths).load(parseYaml("[]"))).toThrow("permissions.yaml: bash must be an object");
     });
 
     test("adds allow rule for one command", () => {
@@ -87,7 +88,7 @@ describe("BashRuleFactory.load", () => {
             bash: {
                 ls: { decide: "allow" },
             },
-        }, "bash", new BashRuleFactory())).toEqual([
+        }, "bash", new BashRuleFactory(testConfigPaths))).toEqual([
             new BashRule("ls", "allow", undefined, undefined, undefined, undefined),
         ]);
     });
@@ -97,7 +98,7 @@ describe("BashRuleFactory.load", () => {
             bash: {
                 ls: { decide: "allow", reason: "ls is safe" },
             },
-        }, "bash", new BashRuleFactory())).toEqual([
+        }, "bash", new BashRuleFactory(testConfigPaths))).toEqual([
             new BashRule("ls", "allow", "ls is safe", undefined, undefined, undefined),
         ]);
     });
@@ -107,7 +108,7 @@ describe("BashRuleFactory.load", () => {
             bash: {
                 ls: [{ decide: "allow" }, { decide: "ask" }],
             },
-        }, "bash", new BashRuleFactory())).toEqual([
+        }, "bash", new BashRuleFactory(testConfigPaths))).toEqual([
             new BashRule("ls", "allow", undefined, undefined, undefined, undefined),
             new BashRule("ls", "ask", undefined, undefined, undefined, undefined),
         ]);
@@ -120,15 +121,15 @@ describe("BashRuleFactory.load", () => {
             bash: {
                 ls: { rules: [] },
             },
-        }, "bash", new BashRuleFactory())).toEqual([branchRule]);
+        }, "bash", new BashRuleFactory(testConfigPaths))).toEqual([branchRule]);
     });
 
     test("throws when list contains invalid entries", () => {
-        expect(() => new BashRuleFactory().load(parseYaml("ls:\n  - decide: allow\n  - null\n  - invalid"))).toThrow("permissions.yaml: bash.ls must contain only rule objects");
+        expect(() => new BashRuleFactory(testConfigPaths).load(parseYaml("ls:\n  - decide: allow\n  - null\n  - invalid"))).toThrow("permissions.yaml: bash.ls must contain only rule objects");
     });
 
     test("throws when reason is not a string", () => {
-        expect(() => new BashRuleFactory().load(parseYaml("ls:\n  decide: allow\n  reason: 42"))).toThrow("permissions.yaml: bash.ls reason must be a string");
+        expect(() => new BashRuleFactory(testConfigPaths).load(parseYaml("ls:\n  decide: allow\n  reason: 42"))).toThrow("permissions.yaml: bash.ls reason must be a string");
     });
 
     test("adds rule with env matcher", () => {
@@ -136,7 +137,7 @@ describe("BashRuleFactory.load", () => {
             bash: {
                 ls: { env: { FOO: "bar" }, decide: "allow" },
             },
-        }, "bash", new BashRuleFactory())).toEqual([
+        }, "bash", new BashRuleFactory(testConfigPaths))).toEqual([
             new BashRule("ls", "allow", undefined, { FOO: "bar" }, undefined, undefined),
         ]);
     });
@@ -153,31 +154,114 @@ describe("BashRuleFactory.load", () => {
                     },
                 },
             },
-        }, "bash", new BashRuleFactory())).toEqual([expectedRule]);
+        }, "bash", new BashRuleFactory(testConfigPaths))).toEqual([expectedRule]);
     });
 
     test("throws when env is not an object", () => {
-        expect(() => new BashRuleFactory().load(parseYaml("ls:\n  env: invalid\n  decide: allow"))).toThrow("permissions.yaml: bash.ls env must be an object");
+        expect(() => new BashRuleFactory(testConfigPaths).load(parseYaml("ls:\n  env: invalid\n  decide: allow"))).toThrow("permissions.yaml: bash.ls env must be an object");
     });
 
     test("throws when env value is not a string", () => {
-        expect(() => new BashRuleFactory().load(parseYaml("ls:\n  env:\n    FOO: 42\n  decide: allow"))).toThrow("permissions.yaml: bash.ls env.FOO must be a string");
+        expect(() => new BashRuleFactory(testConfigPaths).load(parseYaml("ls:\n  env:\n    FOO: 42\n  decide: allow"))).toThrow("permissions.yaml: bash.ls env.FOO must be a string");
     });
 
     test("throws on unknown bash entry field", () => {
-        expect(() => new BashRuleFactory().load(parseYaml("ls:\n  unknown: true\n  decide: allow"))).toThrow("permissions.yaml: bash.ls unknown field 'unknown'");
+        expect(() => new BashRuleFactory(testConfigPaths).load(parseYaml("ls:\n  unknown: true\n  decide: allow"))).toThrow("permissions.yaml: bash.ls unknown field 'unknown'");
     });
 
     test("throws on typo rule field at decide entry", () => {
-        expect(() => new BashRuleFactory().load({
+        expect(() => new BashRuleFactory(testConfigPaths).load({
             ls: { envv: { FOO: "bar" }, decide: "allow" },
         })).toThrow("permissions.yaml: bash.ls unknown field 'envv'");
     });
 
     test("throws on scalar typo at intermediate entry", () => {
-        expect(() => new BashRuleFactory().load({
+        expect(() => new BashRuleFactory(testConfigPaths).load({
             npm: { decidee: "allow" },
         })).toThrow("permissions.yaml: bash.npm unknown field 'decidee'");
+    });
+
+});
+
+describe("BashRuleFactory.load matcher token expansion", () => {
+
+    // Load one bash entry against directories that differ from this process's own environment, so
+    // a rule expanded from the ambient CLAUDE_PROJECT_DIR or HOME would produce the wrong answer.
+    function loadWithProjectDir(bashSection: IBashConfig, projectDir: string, homeDir: string): BashRule[] {
+
+        const configPaths: IConfigPaths = {
+            projectDir,
+            homeDir,
+        };
+        return loadSection({ bash: bashSection }, "bash", new BashRuleFactory(configPaths)) as BashRule[];
+    }
+
+    test("expands the project dir token in cwd", () => {
+        const rules = loadWithProjectDir({
+            npm: {
+                cwd: "${{PROJECT_DIR}}/**",
+                decide: "allow",
+            },
+        }, "/my/project", "/home/user");
+        expect(rules[0].requiredCwd).toEqual("/my/project/**");
+    });
+
+    test("expands the project dir token in cwd-in", () => {
+        const rules = loadWithProjectDir({
+            npm: {
+                "cwd-in": ["${{PROJECT_DIR}}/src/**", "${{HOME}}/scratch/**"],
+                decide: "allow",
+            },
+        }, "/my/project", "/home/user");
+        expect(rules[0].requiredCwdInPatterns).toEqual(["/my/project/src/**", "/home/user/scratch/**"]);
+    });
+
+    test("expands the project dir token in an array-form cmd", () => {
+        const rules = loadWithProjectDir({
+            git: {
+                worktree: {
+                    cmd: ["remove", "${{PROJECT_DIR}}/.claude/worktrees/*"],
+                    decide: "allow",
+                },
+            },
+        }, "/my/project", "/home/user");
+        expect(rules[0].requiredCmdPatterns).toEqual(["remove", "/my/project/.claude/worktrees/*"]);
+    });
+
+    test("expands the project dir token in an option value pattern", () => {
+        const rules = loadWithProjectDir({
+            git: {
+                merge: {
+                    options: { C: "${{PROJECT_DIR}}" },
+                    decide: "allow",
+                },
+            },
+        }, "/my/project", "/home/user");
+        expect(rules[0].requiredOptionPatterns).toEqual({ C: "/my/project" });
+    });
+
+    test("expands the home token in an option value pattern", () => {
+        const rules = loadWithProjectDir({
+            git: {
+                merge: {
+                    options: { C: "${{HOME}}/**" },
+                    decide: "allow",
+                },
+            },
+        }, "/my/project", "/home/user");
+        expect(rules[0].requiredOptionPatterns).toEqual({ C: "/home/user/**" });
+    });
+
+    test("leaves an option value pattern without a token untouched", () => {
+        const rules = loadWithProjectDir({
+            git: {
+                commit: {
+                    options: { "m|message": "/wip/" },
+                    decide: "deny",
+                },
+            },
+        }, "/my/project", "/home/user");
+        expect(rules[0].requiredOptionPatterns).toEqual({ "m|message": "/wip/" });
     });
 
 });
@@ -185,7 +269,7 @@ describe("BashRuleFactory.load", () => {
 describe("FileToolRuleFactory.load", () => {
 
     test("adds nothing when section is absent", () => {
-        expect(loadSection({}, "read", new FileToolRuleFactory("read"))).toEqual([]);
+        expect(loadSection({}, "read", new FileToolRuleFactory("read", testConfigPaths))).toEqual([]);
     });
 
     test("adds one read rule", () => {
@@ -194,14 +278,14 @@ describe("FileToolRuleFactory.load", () => {
                 path: "**/*.ts",
                 decide: "allow",
             },
-        }, "read", new FileToolRuleFactory("read"))).toEqual([
+        }, "read", new FileToolRuleFactory("read", testConfigPaths))).toEqual([
             new FileToolRule("read", ["**/*.ts"], "allow", undefined, undefined),
         ]);
     });
 
-    test("expands ${{PROJECT_DIR}} in read path (read-projectdir-path-allow)", () => {
+    test("expands ${{PROJECT_DIR}} in read path from the factory project dir, not the ambient one (read-projectdir-path-allow)", () => {
         const originalProjectDir = process.env["CLAUDE_PROJECT_DIR"];
-        process.env["CLAUDE_PROJECT_DIR"] = "/my/project";
+        process.env["CLAUDE_PROJECT_DIR"] = "/somewhere/else";
         try {
             expect(loadSection({
                 read: {
@@ -209,7 +293,7 @@ describe("FileToolRuleFactory.load", () => {
                     decide: "allow",
                     reason: "OK to read any files in the current project",
                 },
-            }, "read", new FileToolRuleFactory("read"))).toEqual([
+            }, "read", new FileToolRuleFactory("read", { projectDir: "/my/project", homeDir: "/my/home" }))).toEqual([
                 new FileToolRule(
                     "read",
                     ["/my/project/**"],
@@ -235,7 +319,7 @@ describe("FileToolRuleFactory.load", () => {
                 path: "/home/**",
                 decide: "allow",
             },
-        }, "write", new FileToolRuleFactory("write"))).toEqual([
+        }, "write", new FileToolRuleFactory("write", testConfigPaths))).toEqual([
             new FileToolRule("write", ["/home/**"], "allow", undefined, undefined),
         ]);
     });
@@ -246,7 +330,7 @@ describe("FileToolRuleFactory.load", () => {
                 path: "**/*.ts",
                 decide: "allow",
             },
-        }, "edit", new FileToolRuleFactory("edit"))).toEqual([
+        }, "edit", new FileToolRuleFactory("edit", testConfigPaths))).toEqual([
             new FileToolRule("edit", ["**/*.ts"], "allow", undefined, undefined),
         ]);
     });
@@ -257,7 +341,7 @@ describe("FileToolRuleFactory.load", () => {
                 path: "/home/**",
                 decide: "allow",
             },
-        }, "multi_edit", new FileToolRuleFactory("multiedit"))).toEqual([
+        }, "multi_edit", new FileToolRuleFactory("multiedit", testConfigPaths))).toEqual([
             new FileToolRule("multiedit", ["/home/**"], "allow", undefined, undefined),
         ]);
     });
@@ -269,18 +353,18 @@ describe("FileToolRuleFactory.load", () => {
                 decide: "allow",
                 reason: "typescript sources are safe",
             },
-        }, "read", new FileToolRuleFactory("read"))).toEqual([
+        }, "read", new FileToolRuleFactory("read", testConfigPaths))).toEqual([
             new FileToolRule("read", ["**/*.ts"], "allow", "typescript sources are safe", undefined),
         ]);
     });
 
     test("throws when section is not an object or array", () => {
-        expect(() => new FileToolRuleFactory("read").load(parseYaml("invalid"))).toThrow("permissions.yaml: read must be an object or array");
-        expect(() => new FileToolRuleFactory("read").load(parseYaml("null"))).toThrow("permissions.yaml: read must be an object or array");
+        expect(() => new FileToolRuleFactory("read", testConfigPaths).load(parseYaml("invalid"))).toThrow("permissions.yaml: read must be an object or array");
+        expect(() => new FileToolRuleFactory("read", testConfigPaths).load(parseYaml("null"))).toThrow("permissions.yaml: read must be an object or array");
     });
 
     test("adds nothing for empty array section", () => {
-        expect(loadSection({ read: [] }, "read", new FileToolRuleFactory("read"))).toEqual([]);
+        expect(loadSection({ read: [] }, "read", new FileToolRuleFactory("read", testConfigPaths))).toEqual([]);
     });
 
     test("adds catch-all rule when path is absent (write-rules-path-deny)", () => {
@@ -289,7 +373,7 @@ describe("FileToolRuleFactory.load", () => {
                 decide: "ask",
                 reason: "Confirm write",
             },
-        }, "write", new FileToolRuleFactory("write"))).toEqual([
+        }, "write", new FileToolRuleFactory("write", testConfigPaths))).toEqual([
             new FileToolRule("write", [], "ask", "Confirm write", undefined),
         ]);
     });
@@ -318,7 +402,7 @@ describe("FileToolRuleFactory.load", () => {
                     },
                 ],
             }],
-        }, "write", new FileToolRuleFactory("write"))).toEqual([listRule]);
+        }, "write", new FileToolRuleFactory("write", testConfigPaths))).toEqual([listRule]);
     });
 
     test("adds one read path-in rule (read-path-in)", () => {
@@ -328,31 +412,31 @@ describe("FileToolRuleFactory.load", () => {
                 decide: "deny",
                 reason: "system files denied",
             },
-        }, "read", new FileToolRuleFactory("read"))).toEqual([
+        }, "read", new FileToolRuleFactory("read", testConfigPaths))).toEqual([
             new FileToolRule("read", ["/etc/**", "/sys/**"], "deny", "system files denied", undefined),
         ]);
     });
 
     test("throws when path-in is not an array", () => {
-        expect(() => new FileToolRuleFactory("read").load(parseYaml("path-in: '/etc/**'\ndecide: deny"))).toThrow(
+        expect(() => new FileToolRuleFactory("read", testConfigPaths).load(parseYaml("path-in: '/etc/**'\ndecide: deny"))).toThrow(
             "permissions.yaml: read path-in must be an array"
         );
     });
 
     test("throws when path-in entries are not strings", () => {
-        expect(() => new FileToolRuleFactory("read").load(parseYaml("path-in: [42]\ndecide: deny"))).toThrow(
+        expect(() => new FileToolRuleFactory("read", testConfigPaths).load(parseYaml("path-in: [42]\ndecide: deny"))).toThrow(
             "permissions.yaml: read path-in entries must be strings"
         );
     });
 
     test("throws when decide is missing", () => {
-        expect(() => new FileToolRuleFactory("read").load(parseYaml("path: '**/*.ts'"))).toThrow(
+        expect(() => new FileToolRuleFactory("read", testConfigPaths).load(parseYaml("path: '**/*.ts'"))).toThrow(
             "permissions.yaml: read entry must have decide or rules"
         );
     });
 
     test("throws when reason is not a string", () => {
-        expect(() => new FileToolRuleFactory("read").load(parseYaml("path: '**/*.ts'\ndecide: deny\nreason: 42"))).toThrow("permissions.yaml: read reason must be a string");
+        expect(() => new FileToolRuleFactory("read", testConfigPaths).load(parseYaml("path: '**/*.ts'\ndecide: deny\nreason: 42"))).toThrow("permissions.yaml: read reason must be a string");
     });
 
 });
@@ -572,7 +656,7 @@ describe("loadConfigFile", () => {
             },
         }));
 
-        const rules = await loadConfigFile(configPath);
+        const rules = await loadConfigFile(configPath, testConfigPaths);
         expect(rules).toHaveLength(1);
         const expectedRule = new BashRule("ls", "allow", undefined, undefined, undefined, undefined);
         const comparedRule = Object.assign(Object.create(Object.getPrototypeOf(rules[0])), rules[0]);
@@ -590,7 +674,7 @@ describe("loadConfigFile", () => {
         const tempRoot = await mkdtemp(join(tmpdir(), "load-config-file-test-"));
         const configPath = join(tempRoot, "permissions.yaml");
 
-        expect(await loadConfigFile(configPath)).toEqual([]);
+        expect(await loadConfigFile(configPath, testConfigPaths)).toEqual([]);
     });
 
     test("throws when file root is not an object", async () => {
@@ -598,7 +682,7 @@ describe("loadConfigFile", () => {
         const configPath = join(tempRoot, "permissions.yaml");
         await writeFile(configPath, "invalid\n");
 
-        await expect(loadConfigFile(configPath)).rejects.toThrow("permissions.yaml: root must be an object");
+        await expect(loadConfigFile(configPath, testConfigPaths)).rejects.toThrow("permissions.yaml: root must be an object");
     });
 
     test("sets sourceLocation on rules loaded from file", async () => {
@@ -606,7 +690,7 @@ describe("loadConfigFile", () => {
         const configPath = join(tempRoot, "permissions.yaml");
         await writeFile(configPath, "bash:\n  ls:\n    decide: allow\n");
 
-        const rules = await loadConfigFile(configPath);
+        const rules = await loadConfigFile(configPath, testConfigPaths);
         expect(rules).toHaveLength(1);
         expect(rules[0].sourceLocation).toEqual({
             file: configPath,

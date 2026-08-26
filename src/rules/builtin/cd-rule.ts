@@ -26,11 +26,15 @@ export class CdRule implements IRule {
 
         const target = commandNode.positionals[0];
 
+        // cd moves the working directory only. The project and home directories describe where the
+        // rules were loaded from, so they carry through unchanged.
         if (target.includes("$")) {
             return {
                 context: {
                     cwd: context.cwd,
                     cwdResolved: false,
+                    projectDir: context.projectDir,
+                    homeDir: context.homeDir,
                     env: context.env,
                 },
             };
@@ -41,6 +45,8 @@ export class CdRule implements IRule {
         return {
             context: {
                 cwd: newCwd,
+                projectDir: context.projectDir,
+                homeDir: context.homeDir,
                 env: context.env,
             },
         };

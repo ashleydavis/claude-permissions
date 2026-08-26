@@ -1,7 +1,7 @@
 import { readFile, readdir, stat } from "fs/promises";
 import { join } from "path";
 import { IAuditLogger, logConfigLoad } from "./audit-log";
-import { IPermissionsConfig } from "./config";
+import { IConfigPaths, IPermissionsConfig } from "./config";
 import { parsePermissionsYaml } from "./yaml-source";
 import { BashRuleFactory } from "./rules/bash-rule-factory";
 import { builtinRules } from "./rules/builtin";
@@ -12,17 +12,21 @@ import { IRule, IRuleFactory } from "./rules/rule";
 import { RedirectRuleFactory } from "./rules/redirect-rule";
 import { WebFetchRuleFactory } from "./rules/webfetch-rule-factory";
 
-// Dedicated section factories, keyed by lowercase section name.
-const sectionFactories: Record<string, IRuleFactory> = {
-    bash: new BashRuleFactory(),
-    read: new FileToolRuleFactory("read"),
-    write: new FileToolRuleFactory("write"),
-    edit: new FileToolRuleFactory("edit"),
-    multi_edit: new FileToolRuleFactory("multiedit"),
-    webfetch: new WebFetchRuleFactory(),
-    grep: new GrepRuleFactory(),
-    redirect: new RedirectRuleFactory(),
-};
+// Build the dedicated section factories, keyed by lowercase section name. The bash and file tool
+// factories expand path tokens as they parse, so they are built per load against that load's
+// directories rather than shared as one set for the whole process.
+export function makeSectionFactories(configPaths: IConfigPaths): Record<string, IRuleFactory> {
+    return {
+        bash: new BashRuleFactory(configPaths),
+        read: new FileToolRuleFactory("read", configPaths),
+        write: new FileToolRuleFactory("write", configPaths),
+        edit: new FileToolRuleFactory("edit", configPaths),
+        multi_edit: new FileToolRuleFactory("multiedit", configPaths),
+        webfetch: new WebFetchRuleFactory(),
+        grep: new GrepRuleFactory(),
+        redirect: new RedirectRuleFactory(),
+    };
+}
 
 // IRules holds all permission rules for one evaluation pass.
 export interface IRules {
@@ -43,7 +47,7 @@ export function loadSection(permissionsConfig: IPermissionsConfig, sectionKey: s
 }
 
 // Load permission rules from one permissions.yaml file on disk.
-export async function loadConfigFile(configPath: string): Promise<IRule[]> {
+export async function loadConfigFile(configPath: string, configPaths: IConfigPaths): Promise<IRule[]> {
 
     let content: string;
 
@@ -68,6 +72,7 @@ export async function loadConfigFile(configPath: string): Promise<IRule[]> {
     }
 
     const configRules: IRule[] = [];
+    const sectionFactories = makeSectionFactories(configPaths);
 
     for (const sectionKey of Object.keys(permissionsConfig)) {
         configRules.push(...loadSection(
@@ -81,7 +86,7 @@ export async function loadConfigFile(configPath: string): Promise<IRule[]> {
 }
 
 // Load every config file from one permissions.d directory, in sorted filename order.
-async function loadPermissionsDir(permissionsDir: string, displayPrefix: string, logger: IAuditLogger): Promise<IRule[]> {
+async function loadPermissionsDir(permissionsDir: string, displayPrefix: string, logger: IAuditLogger, configPaths: IConfigPaths): Promise<IRule[]> {
 
     const configFileNames: string[] = [];
 
@@ -119,7 +124,7 @@ async function loadPermissionsDir(permissionsDir: string, displayPrefix: string,
     // Load each config file in this directory.
     const dirRules: IRule[] = [];
     for (const configFileName of configFileNames) {
-        const configFileRules = await loadConfigFile(join(permissionsDir, configFileName));
+        const configFileRules = await loadConfigFile(join(permissionsDir, configFileName), configPaths);
         logConfigLoad(logger, `${displayPrefix}/${configFileName}`, configFileRules.length);
         dirRules.push(...configFileRules);
     }
@@ -133,22 +138,29 @@ export async function load(projectDir: string, homeDir: string, logger: IAuditLo
     // Built-in rules always apply first.
     const rules: IRule[] = [...builtinRules];
 
+    // Every path token in every rule below expands against these two directories, so a caller
+    // loading one project's rules from inside another gets them anchored where it asked.
+    const configPaths: IConfigPaths = {
+        projectDir,
+        homeDir,
+    };
+
     // Load the home's main permissions.yaml when present.
-    const homeMainRules = await loadConfigFile(join(homeDir, ".claude", "permissions.yaml"));
+    const homeMainRules = await loadConfigFile(join(homeDir, ".claude", "permissions.yaml"), configPaths);
     logConfigLoad(logger, "~/.claude/permissions.yaml", homeMainRules.length);
     rules.push(...homeMainRules);
 
     // Collect yaml file names from ~/.claude/permissions.d (or the test home dir).
     const homePermissionsDir = join(homeDir, ".claude", "permissions.d");
-    rules.push(...await loadPermissionsDir(homePermissionsDir, "~/.claude/permissions.d", logger));
+    rules.push(...await loadPermissionsDir(homePermissionsDir, "~/.claude/permissions.d", logger, configPaths));
 
     // Then load the project's main permissions.yaml when present.
-    const projectMainRules = await loadConfigFile(join(projectDir, ".claude", "permissions.yaml"));
+    const projectMainRules = await loadConfigFile(join(projectDir, ".claude", "permissions.yaml"), configPaths);
     logConfigLoad(logger, ".claude/permissions.yaml", projectMainRules.length);
     rules.push(...projectMainRules);
 
     // Load config files from the project's .claude/permissions.d directory.
-    rules.push(...await loadPermissionsDir(join(projectDir, ".claude", "permissions.d"), ".claude/permissions.d", logger));
+    rules.push(...await loadPermissionsDir(join(projectDir, ".claude", "permissions.d"), ".claude/permissions.d", logger, configPaths));
 
     return { rules };
 }

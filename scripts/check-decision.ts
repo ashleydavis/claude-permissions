@@ -131,6 +131,8 @@ try {
     const actualResult = await decide(ast, rules, {
         cwd: call.cwd,
         cwdResolved: substitutedInput.cwd_resolved === false ? false : true,
+        projectDir,
+        homeDir,
         env: {},
     }, new NullAuditLogger());
     const actualAction = actualResult !== undefined ? actualResult.action : "ask";

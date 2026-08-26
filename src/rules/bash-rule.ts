@@ -205,14 +205,14 @@ export class BashRule implements IRule {
 
         let filePath = path;
         if (filePath.startsWith("~/")) {
-            const homeDir = process.env["HOME"];
+            const homeDir = context.homeDir;
             if (homeDir) {
                 filePath = `${homeDir}/${filePath.slice(2)}`;
             }
         }
 
         if (!filePath.startsWith("/")) {
-            const projectDir = process.env["CLAUDE_PROJECT_DIR"] ?? context.cwd;
+            const projectDir = context.projectDir ?? context.cwd;
             filePath = resolve(projectDir, filePath);
         }
 
@@ -331,7 +331,7 @@ export class BashRule implements IRule {
 
         // A ./ pattern anchors to the project directory so a path resolved outside the project does not match.
         if (cmdInPattern.startsWith("./")) {
-            cmdGlob = resolve(process.env["CLAUDE_PROJECT_DIR"] ?? context.cwd, cmdInPattern);
+            cmdGlob = resolve(context.projectDir ?? context.cwd, cmdInPattern);
         }
 
         return picomatch(cmdGlob, { dot: true })(positionalArg);
@@ -367,7 +367,7 @@ export class BashRule implements IRule {
 
             // A ./ pattern anchors to the project directory so cwd outside the project does not match.
             if (cwdInPattern.startsWith("./")) {
-                cwdGlob = resolve(process.env["CLAUDE_PROJECT_DIR"] ?? context.cwd, cwdInPattern);
+                cwdGlob = resolve(context.projectDir ?? context.cwd, cwdInPattern);
             }
 
             if (picomatch(cwdGlob, { dot: true })(resolve(context.cwd))) {
@@ -409,7 +409,7 @@ export class BashRule implements IRule {
 
             // A ./ pattern anchors to the project directory so a path resolved outside the project does not match.
             if (cmdPattern.startsWith("./")) {
-                cmdGlob = resolve(process.env["CLAUDE_PROJECT_DIR"] ?? context.cwd, cmdPattern);
+                cmdGlob = resolve(context.projectDir ?? context.cwd, cmdPattern);
             }
 
             let cmdMatched = false;

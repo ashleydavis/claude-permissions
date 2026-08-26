@@ -79,7 +79,7 @@ export async function analyzePermission(input: string, cwd: string, projectDir: 
     const ast = await parseToolCallToAst(toolCall, homeDir, projectDir);
     const capturingLogger = new CapturingAuditLogger();
     const rules = await load(projectDir, homeDir, capturingLogger);
-    const startingContext = { cwd: toolCall.cwd, cwdResolved: true, env: {} };
+    const startingContext = { cwd: toolCall.cwd, cwdResolved: true, projectDir, homeDir, env: {} };
     const decision = await decide(ast, rules, startingContext, capturingLogger);
     return {
         decision: decision !== undefined ? decision.action : "ask",

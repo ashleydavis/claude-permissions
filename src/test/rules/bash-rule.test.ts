@@ -5,6 +5,7 @@ import { parse as parseYaml } from "yaml";
 import { IFileFieldMap, INotFields } from "../../config";
 import { BashRule } from "../../rules/bash-rule";
 import { BashRuleFactory } from "../../rules/bash-rule-factory";
+import { testConfigPaths } from "../test-config-paths";
 import { ICommandNode } from "../../ast-nodes/command-ast-node";
 import { CommandAstNode } from "../../ast-nodes/command-ast-node";
 import { FilePathToolAstNode } from "../../ast-nodes/file-path-tool-ast-node";
@@ -224,21 +225,9 @@ describe("BashRule.evaluateNot", () => {
         const tempRoot = await mkdtemp(join(tmpdir(), "bash-rule-not-file-no-match-test-"));
         const filePath = join(tempRoot, "no-sandbox.txt");
         await writeFile(filePath, "production\n");
-        const originalProjectDir = process.env["CLAUDE_PROJECT_DIR"];
-        process.env["CLAUDE_PROJECT_DIR"] = tempRoot;
-        try {
-            const rule = new BashRule("kubectl", "deny", undefined, undefined, undefined, undefined);
-            rule.not = { file: { "no-sandbox.txt": { contains: "sandbox" } } };
-            expect(await rule.evaluateNot(emptyCommand, { cwd: "/project", env: {} })).toBe(false);
-        }
-        finally {
-            if (originalProjectDir === undefined) {
-                delete process.env["CLAUDE_PROJECT_DIR"];
-            }
-            else {
-                process.env["CLAUDE_PROJECT_DIR"] = originalProjectDir;
-            }
-        }
+        const rule = new BashRule("kubectl", "deny", undefined, undefined, undefined, undefined);
+        rule.not = { file: { "no-sandbox.txt": { contains: "sandbox" } } };
+        expect(await rule.evaluateNot(emptyCommand, { cwd: "/project", projectDir: tempRoot, env: {} })).toBe(false);
     });
 
     test("returns true when not file contains matches (bash-not-file-matches-abstain)", async () => {
@@ -330,20 +319,8 @@ describe("BashRule.evaluateFile", () => {
     test("resolves a relative path against the project dir", async () => {
         const tempRoot = await mkdtemp(join(tmpdir(), "bash-rule-evaluate-file-rel-test-"));
         await writeFile(join(tempRoot, "sandbox.txt"), "sandbox\n");
-        const originalProjectDir = process.env["CLAUDE_PROJECT_DIR"];
-        process.env["CLAUDE_PROJECT_DIR"] = tempRoot;
-        try {
-            const rule = new BashRule("kubectl", "allow", undefined, undefined, undefined, undefined);
-            expect(await rule.evaluateFile("sandbox.txt", { contains: "sandbox" }, { cwd: "/project", env: {} }, false)).toBe(true);
-        }
-        finally {
-            if (originalProjectDir === undefined) {
-                delete process.env["CLAUDE_PROJECT_DIR"];
-            }
-            else {
-                process.env["CLAUDE_PROJECT_DIR"] = originalProjectDir;
-            }
-        }
+        const rule = new BashRule("kubectl", "allow", undefined, undefined, undefined, undefined);
+        expect(await rule.evaluateFile("sandbox.txt", { contains: "sandbox" }, { cwd: "/project", projectDir: tempRoot, env: {} }, false)).toBe(true);
     });
 
     test("returns true when the file exists and contains matches a regex pattern", async () => {
@@ -479,39 +456,21 @@ describe("BashRule.evaluateRequiredCwdInPatterns", () => {
     });
 
     test("matches ./ against cwd at the project root (bash-cwd-in-dot-slash-allow)", async () => {
-        const originalProjectDir = process.env["CLAUDE_PROJECT_DIR"];
-        process.env["CLAUDE_PROJECT_DIR"] = "/my/project";
-        try {
-            const rule = new BashRule("bun", "allow", undefined, undefined, undefined, undefined);
-            rule.requiredCwdInPatterns = ["./"];
-            expect(rule.evaluateRequiredCwdInPatterns({ cwd: "/my/project", env: {} })).toBe(true);
-        }
-        finally {
-            if (originalProjectDir === undefined) {
-                delete process.env["CLAUDE_PROJECT_DIR"];
-            }
-            else {
-                process.env["CLAUDE_PROJECT_DIR"] = originalProjectDir;
-            }
-        }
+        const rule = new BashRule("bun", "allow", undefined, undefined, undefined, undefined);
+        rule.requiredCwdInPatterns = ["./"];
+        expect(rule.evaluateRequiredCwdInPatterns({ cwd: "/my/project", projectDir: "/my/project", env: {} })).toBe(true);
     });
 
     test("does not match ./ or ./** when cwd is outside the project (bash-cwd-in-dot-star-outside-ask)", async () => {
-        const originalProjectDir = process.env["CLAUDE_PROJECT_DIR"];
-        process.env["CLAUDE_PROJECT_DIR"] = "/my/project";
-        try {
-            const rule = new BashRule("bun", "allow", undefined, undefined, undefined, undefined);
-            rule.requiredCwdInPatterns = ["./", "./**"];
-            expect(rule.evaluateRequiredCwdInPatterns({ cwd: "/tmp/elsewhere", env: {} })).toBe(false);
-        }
-        finally {
-            if (originalProjectDir === undefined) {
-                delete process.env["CLAUDE_PROJECT_DIR"];
-            }
-            else {
-                process.env["CLAUDE_PROJECT_DIR"] = originalProjectDir;
-            }
-        }
+        const rule = new BashRule("bun", "allow", undefined, undefined, undefined, undefined);
+        rule.requiredCwdInPatterns = ["./", "./**"];
+        expect(rule.evaluateRequiredCwdInPatterns({ cwd: "/tmp/elsewhere", projectDir: "/my/project", env: {} })).toBe(false);
+    });
+
+    test("falls back to cwd for a ./ pattern when no project dir is on the context", async () => {
+        const rule = new BashRule("bun", "allow", undefined, undefined, undefined, undefined);
+        rule.requiredCwdInPatterns = ["./"];
+        expect(rule.evaluateRequiredCwdInPatterns({ cwd: "/my/project", env: {} })).toBe(true);
     });
 
 });
@@ -627,41 +586,27 @@ describe("BashRule.evaluateRequiredCmdPatterns", () => {
     });
 
     test("matches a ./ pattern against a positional inside the project (bash-cd-find-sort-project-subdir-allow)", async () => {
-        const originalProjectDir = process.env["CLAUDE_PROJECT_DIR"];
-        process.env["CLAUDE_PROJECT_DIR"] = "/tmp/project";
-        try {
-            const rule = new BashRule("find", "allow", undefined, undefined, undefined, undefined);
-            rule.requiredCmdPatterns = ["./**"];
-            const commandNode: ICommandNode = {
-                ...emptyCommand,
-                commandName: "find",
-                positionals: ["."],
-            };
-            const context = { cwd: "/tmp/project/foo/bar", env: {} };
-            expect(rule.evaluateRequiredCmdPatterns(commandNode, context)).toBe(true);
-        }
-        finally {
-            process.env["CLAUDE_PROJECT_DIR"] = originalProjectDir;
-        }
+        const rule = new BashRule("find", "allow", undefined, undefined, undefined, undefined);
+        rule.requiredCmdPatterns = ["./**"];
+        const commandNode: ICommandNode = {
+            ...emptyCommand,
+            commandName: "find",
+            positionals: ["."],
+        };
+        const context = { cwd: "/tmp/project/foo/bar", projectDir: "/tmp/project", env: {} };
+        expect(rule.evaluateRequiredCmdPatterns(commandNode, context)).toBe(true);
     });
 
     test("does not match a ./ pattern when the positional resolves outside the project (bash-cd-find-outside-project-ask)", async () => {
-        const originalProjectDir = process.env["CLAUDE_PROJECT_DIR"];
-        process.env["CLAUDE_PROJECT_DIR"] = "/tmp/project";
-        try {
-            const rule = new BashRule("find", "allow", undefined, undefined, undefined, undefined);
-            rule.requiredCmdPatterns = ["./**"];
-            const commandNode: ICommandNode = {
-                ...emptyCommand,
-                commandName: "find",
-                positionals: ["."],
-            };
-            const context = { cwd: "/etc", env: {} };
-            expect(rule.evaluateRequiredCmdPatterns(commandNode, context)).toBe(false);
-        }
-        finally {
-            process.env["CLAUDE_PROJECT_DIR"] = originalProjectDir;
-        }
+        const rule = new BashRule("find", "allow", undefined, undefined, undefined, undefined);
+        rule.requiredCmdPatterns = ["./**"];
+        const commandNode: ICommandNode = {
+            ...emptyCommand,
+            commandName: "find",
+            positionals: ["."],
+        };
+        const context = { cwd: "/etc", projectDir: "/tmp/project", env: {} };
+        expect(rule.evaluateRequiredCmdPatterns(commandNode, context)).toBe(false);
     });
 
 });
@@ -1451,17 +1396,17 @@ describe("BashRule.evaluate", () => {
 describe("BashRuleFactory.load", () => {
 
     test("throws when section is not an object", async () => {
-        expect(() => new BashRuleFactory().load(parseYaml("invalid"))).toThrow("permissions.yaml: bash must be an object");
-        expect(() => new BashRuleFactory().load(parseYaml("null"))).toThrow("permissions.yaml: bash must be an object");
-        expect(() => new BashRuleFactory().load(parseYaml("[]"))).toThrow("permissions.yaml: bash must be an object");
+        expect(() => new BashRuleFactory(testConfigPaths).load(parseYaml("invalid"))).toThrow("permissions.yaml: bash must be an object");
+        expect(() => new BashRuleFactory(testConfigPaths).load(parseYaml("null"))).toThrow("permissions.yaml: bash must be an object");
+        expect(() => new BashRuleFactory(testConfigPaths).load(parseYaml("[]"))).toThrow("permissions.yaml: bash must be an object");
     });
 
     test("throws when top-level entry is invalid", async () => {
-        expect(() => new BashRuleFactory().load(parseYaml("ls: null"))).toThrow("permissions.yaml: bash.ls must contain only rule objects");
+        expect(() => new BashRuleFactory(testConfigPaths).load(parseYaml("ls: null"))).toThrow("permissions.yaml: bash.ls must contain only rule objects");
     });
 
     test("loads rules through load", async () => {
-        const rules = new BashRuleFactory().load({
+        const rules = new BashRuleFactory(testConfigPaths).load({
             ls: { decide: "allow" },
         });
         expect(rules).toEqual([
@@ -1476,7 +1421,7 @@ describe("BashRuleFactory.load", () => {
         const listRule = new BashRule("kubectl", "", undefined, undefined, undefined, undefined);
         listRule.children = [getRule];
         listRule.catchAll = askRule;
-        expect(new BashRuleFactory().load({
+        expect(new BashRuleFactory(testConfigPaths).load({
             kubectl: [
                 { get: { decide: "allow", reason: "Read-only." } },
                 { decide: "ask", reason: "Confirm kubectl operation" },
@@ -1485,7 +1430,7 @@ describe("BashRuleFactory.load", () => {
     });
 
     test("leaves unconstrained decide lists flat for strictest at the AST", async () => {
-        expect(new BashRuleFactory().load({
+        expect(new BashRuleFactory(testConfigPaths).load({
             ls: [
                 { decide: "allow", reason: "ls is safe" },
                 { decide: "ask", reason: "Confirm ls" },
@@ -1500,18 +1445,32 @@ describe("BashRuleFactory.load", () => {
 
 describe("BashRuleFactory.expandProjectDirToken", () => {
 
-    const factory = new BashRuleFactory();
+    const factory = new BashRuleFactory(testConfigPaths);
 
     test("returns pattern unchanged when token is absent", async () => {
         expect(factory.expandProjectDirToken("/tmp/**")).toBe("/tmp/**");
     });
 
-    test("expands ${{PROJECT_DIR}} when CLAUDE_PROJECT_DIR is set (bash-explicit-projectdir-cwd-allow)", async () => {
+    test("expands ${{PROJECT_DIR}} to the project dir the factory was built with (bash-explicit-projectdir-cwd-allow)", async () => {
+        const projectFactory = new BashRuleFactory({ projectDir: "/my/project", homeDir: "/my/home" });
+        expect(projectFactory.expandProjectDirToken("${{PROJECT_DIR}}/**")).toBe("/my/project/**");
+    });
+
+    test("expands ${{HOME}} to the home dir the factory was built with (bash-explicit-home-cwd-allow)", async () => {
+        const projectFactory = new BashRuleFactory({ projectDir: "/my/project", homeDir: "/my/home" });
+        expect(projectFactory.expandProjectDirToken("${{HOME}}/**")).toBe("/my/home/**");
+    });
+
+    test("ignores the ambient CLAUDE_PROJECT_DIR and HOME", async () => {
         const originalProjectDir = process.env["CLAUDE_PROJECT_DIR"];
-        process.env["CLAUDE_PROJECT_DIR"] = "/my/project";
+        const originalHome = process.env["HOME"];
+        process.env["CLAUDE_PROJECT_DIR"] = "/somewhere/else";
+        process.env["HOME"] = "/somebody/else";
 
         try {
-            expect(factory.expandProjectDirToken("${{PROJECT_DIR}}/**")).toBe("/my/project/**");
+            const projectFactory = new BashRuleFactory({ projectDir: "/my/project", homeDir: "/my/home" });
+            expect(projectFactory.expandProjectDirToken("${{PROJECT_DIR}}/**")).toBe("/my/project/**");
+            expect(projectFactory.expandProjectDirToken("${{HOME}}/**")).toBe("/my/home/**");
         }
         finally {
             if (originalProjectDir === undefined) {
@@ -1520,51 +1479,7 @@ describe("BashRuleFactory.expandProjectDirToken", () => {
             else {
                 process.env["CLAUDE_PROJECT_DIR"] = originalProjectDir;
             }
-        }
-    });
 
-    test("leaves token literal when CLAUDE_PROJECT_DIR is unset", async () => {
-        const originalProjectDir = process.env["CLAUDE_PROJECT_DIR"];
-        delete process.env["CLAUDE_PROJECT_DIR"];
-
-        try {
-            expect(factory.expandProjectDirToken("${{PROJECT_DIR}}/**")).toBe("${{PROJECT_DIR}}/**");
-        }
-        finally {
-            if (originalProjectDir === undefined) {
-                delete process.env["CLAUDE_PROJECT_DIR"];
-            }
-            else {
-                process.env["CLAUDE_PROJECT_DIR"] = originalProjectDir;
-            }
-        }
-    });
-
-    test("expands ${{HOME}} when HOME is set (bash-explicit-home-cwd-allow)", async () => {
-        const originalHome = process.env["HOME"];
-        process.env["HOME"] = "/my/home";
-
-        try {
-            expect(factory.expandProjectDirToken("${{HOME}}/**")).toBe("/my/home/**");
-        }
-        finally {
-            if (originalHome === undefined) {
-                delete process.env["HOME"];
-            }
-            else {
-                process.env["HOME"] = originalHome;
-            }
-        }
-    });
-
-    test("leaves HOME token literal when HOME is unset", async () => {
-        const originalHome = process.env["HOME"];
-        delete process.env["HOME"];
-
-        try {
-            expect(factory.expandProjectDirToken("${{HOME}}/**")).toBe("${{HOME}}/**");
-        }
-        finally {
             if (originalHome === undefined) {
                 delete process.env["HOME"];
             }
@@ -1579,11 +1494,11 @@ describe("BashRuleFactory.expandProjectDirToken", () => {
 describe("BashRuleFactory.loadBashEntry", () => {
 
     test("throws when entry is null", async () => {
-        expect(() => new BashRuleFactory().loadBashEntry(parseYaml("null"), "ls", [])).toThrow("permissions.yaml: bash.ls must contain only rule objects");
+        expect(() => new BashRuleFactory(testConfigPaths).loadBashEntry(parseYaml("null"), "ls", [])).toThrow("permissions.yaml: bash.ls must contain only rule objects");
     });
 
     test("throws when entry is an array", async () => {
-        expect(() => new BashRuleFactory().loadBashEntry(parseYaml("[]"), "ls", [])).toThrow("permissions.yaml: bash.ls must contain only rule objects");
+        expect(() => new BashRuleFactory(testConfigPaths).loadBashEntry(parseYaml("[]"), "ls", [])).toThrow("permissions.yaml: bash.ls must contain only rule objects");
     });
 
 });
@@ -1591,14 +1506,14 @@ describe("BashRuleFactory.loadBashEntry", () => {
 describe("BashRuleFactory.loadCommandRule", () => {
 
     test("returns rule with subcommand path", async () => {
-        const rule = new BashRuleFactory().loadCommandRule({ decide: "allow" }, "npm", ["test"], "allow");
+        const rule = new BashRuleFactory(testConfigPaths).loadCommandRule({ decide: "allow" }, "npm", ["test"], "allow");
         const expectedRule = new BashRule("npm", "allow", undefined, undefined, undefined, undefined);
         expectedRule.subcommandPath = ["test"];
         expect(rule).toEqual(expectedRule);
     });
 
     test("returns rule with reason and env", async () => {
-        const rule = new BashRuleFactory().loadCommandRule({
+        const rule = new BashRuleFactory(testConfigPaths).loadCommandRule({
             decide: "allow",
             reason: "ls is safe",
             env: { FOO: "bar" },
@@ -1607,7 +1522,7 @@ describe("BashRuleFactory.loadCommandRule", () => {
     });
 
     test("returns rule with not env (bash-not-env-matches-abstain)", async () => {
-        const rule = new BashRuleFactory().loadCommandRule({
+        const rule = new BashRuleFactory(testConfigPaths).loadCommandRule({
             decide: "deny",
             not: {
                 env: {
@@ -1621,7 +1536,7 @@ describe("BashRuleFactory.loadCommandRule", () => {
     });
 
     test("returns rule with not file (bash-not-file-absent-abstain)", async () => {
-        const rule = new BashRuleFactory().loadCommandRule({
+        const rule = new BashRuleFactory(testConfigPaths).loadCommandRule({
             decide: "deny",
             not: {
                 file: {
@@ -1637,7 +1552,7 @@ describe("BashRuleFactory.loadCommandRule", () => {
     });
 
     test("returns rule with cwd (cd-cwd-update)", async () => {
-        const rule = new BashRuleFactory().loadCommandRule({
+        const rule = new BashRuleFactory(testConfigPaths).loadCommandRule({
             decide: "allow",
             cwd: "/tmp",
         }, "ls", [], "allow");
@@ -1645,7 +1560,7 @@ describe("BashRuleFactory.loadCommandRule", () => {
     });
 
     test("returns rule with cwd-in patterns (bash-cwd-in)", async () => {
-        const rule = new BashRuleFactory().loadCommandRule({
+        const rule = new BashRuleFactory(testConfigPaths).loadCommandRule({
             decide: "allow",
             "cwd-in": ["/home/**", "/tmp/**"],
         }, "npm", ["install"], "allow");
@@ -1656,7 +1571,7 @@ describe("BashRuleFactory.loadCommandRule", () => {
     });
 
     test("returns rule with cmd patterns (bash-rules-one-subrule)", async () => {
-        const rule = new BashRuleFactory().loadCommandRule({
+        const rule = new BashRuleFactory(testConfigPaths).loadCommandRule({
             decide: "deny",
             cmd: "* delete-*",
             reason: "Destructive deletes blocked on non-sandbox profile",
@@ -1672,12 +1587,12 @@ describe("BashRuleFactory.loadCommandRule", () => {
         expect(rule).toEqual(expectedRule);
     });
 
-    test("expands ${{HOME}} in cmd patterns when HOME is set (bash-explicit-home-cwd-allow)", async () => {
+    test("expands ${{HOME}} in cmd patterns from the factory home dir, not the ambient HOME (bash-explicit-home-cwd-allow)", async () => {
         const originalHome = process.env["HOME"];
-        process.env["HOME"] = "/my/home";
+        process.env["HOME"] = "/somebody/else";
 
         try {
-            const rule = new BashRuleFactory().loadCommandRule({
+            const rule = new BashRuleFactory({ projectDir: "/my/project", homeDir: "/my/home" }).loadCommandRule({
                 decide: "allow",
                 cmd: "${{HOME}}/**",
             }, "ls", [], "allow");
@@ -1696,7 +1611,7 @@ describe("BashRuleFactory.loadCommandRule", () => {
     });
 
     test("returns rule with cmd-in patterns (bash-cmd-in)", async () => {
-        const rule = new BashRuleFactory().loadCommandRule({
+        const rule = new BashRuleFactory(testConfigPaths).loadCommandRule({
             decide: "deny",
             "cmd-in": ["*.json", "*.yaml"],
             reason: "config files protected",
@@ -1712,11 +1627,11 @@ describe("BashRuleFactory.loadCommandRule", () => {
         expect(rule).toEqual(expectedRule);
     });
 
-    test("expands ${{PROJECT_DIR}} in cmd-in patterns (bash-cmd-in-projectdir-allow)", async () => {
+    test("expands ${{PROJECT_DIR}} in cmd-in patterns from the factory project dir, not the ambient one (bash-cmd-in-projectdir-allow)", async () => {
         const originalProjectDir = process.env["CLAUDE_PROJECT_DIR"];
-        process.env["CLAUDE_PROJECT_DIR"] = "/my/project";
+        process.env["CLAUDE_PROJECT_DIR"] = "/somewhere/else";
         try {
-            const rule = new BashRuleFactory().loadCommandRule({
+            const rule = new BashRuleFactory({ projectDir: "/my/project", homeDir: "/my/home" }).loadCommandRule({
                 decide: "allow",
                 "cmd-in": ["${{PROJECT_DIR}}/**"],
                 reason: "Allow sed on files within the project directory",
@@ -1734,7 +1649,7 @@ describe("BashRuleFactory.loadCommandRule", () => {
     });
 
     test("returns rule with cmd array patterns (bash-cmd-array)", async () => {
-        const rule = new BashRuleFactory().loadCommandRule({
+        const rule = new BashRuleFactory(testConfigPaths).loadCommandRule({
             decide: "allow",
             cmd: ["*.ts", "*.ts"],
         }, "cp", [], "allow");
@@ -1744,7 +1659,7 @@ describe("BashRuleFactory.loadCommandRule", () => {
     });
 
     test("returns rule with options (bash-args-flag-presence)", async () => {
-        const rule = new BashRuleFactory().loadCommandRule({
+        const rule = new BashRuleFactory(testConfigPaths).loadCommandRule({
             decide: "deny",
             options: ["r"],
             reason: "recursive rm denied",
@@ -1755,7 +1670,7 @@ describe("BashRuleFactory.loadCommandRule", () => {
     });
 
     test("returns rule with option value patterns (bash-args-value-pattern)", async () => {
-        const rule = new BashRuleFactory().loadCommandRule({
+        const rule = new BashRuleFactory(testConfigPaths).loadCommandRule({
             decide: "deny",
             options: { message: "wip*" },
             reason: "no wip commits",
@@ -1767,7 +1682,7 @@ describe("BashRuleFactory.loadCommandRule", () => {
     });
 
     test("returns rule with options-in (bash-args-in)", async () => {
-        const rule = new BashRuleFactory().loadCommandRule({
+        const rule = new BashRuleFactory(testConfigPaths).loadCommandRule({
             decide: "deny",
             "options-in": ["r", "f"],
             reason: "rm -r or -f denied",
@@ -1778,12 +1693,12 @@ describe("BashRuleFactory.loadCommandRule", () => {
     });
 
     test("throws on unknown field", async () => {
-        expect(() => new BashRuleFactory().loadCommandRule(parseYaml("decide: allow\nunknown: true"), "ls", [], "allow")).toThrow("permissions.yaml: bash.ls unknown field 'unknown'");
-        expect(() => new BashRuleFactory().loadCommandRule(parseYaml("decide: deny\ncwd_resolved: true"), "rm", [], "deny")).toThrow("permissions.yaml: bash.rm unknown field 'cwd_resolved'");
+        expect(() => new BashRuleFactory(testConfigPaths).loadCommandRule(parseYaml("decide: allow\nunknown: true"), "ls", [], "allow")).toThrow("permissions.yaml: bash.ls unknown field 'unknown'");
+        expect(() => new BashRuleFactory(testConfigPaths).loadCommandRule(parseYaml("decide: deny\ncwd_resolved: true"), "rm", [], "deny")).toThrow("permissions.yaml: bash.rm unknown field 'cwd_resolved'");
     });
 
     test("accepts and ignores examples", async () => {
-        const rule = new BashRuleFactory().loadCommandRule(
+        const rule = new BashRuleFactory(testConfigPaths).loadCommandRule(
             parseYaml("decide: allow\nexamples:\n  allow:\n    - git log --oneline\n  ask:\n    - cmd: git log\n      cwd: /tmp"),
             "git",
             ["log"],
@@ -1795,7 +1710,7 @@ describe("BashRuleFactory.loadCommandRule", () => {
     });
 
     test("throws when examples sits beside subcommand names", async () => {
-        expect(() => new BashRuleFactory().loadBashEntry(
+        expect(() => new BashRuleFactory(testConfigPaths).loadBashEntry(
             parseYaml("examples:\n  allow:\n    - npm ls\nls:\n  decide: allow"),
             "npm",
             []
@@ -1803,71 +1718,71 @@ describe("BashRuleFactory.loadCommandRule", () => {
     });
 
     test("throws when options is not an array or object", async () => {
-        expect(() => new BashRuleFactory().loadCommandRule(parseYaml("decide: deny\noptions: true"), "rm", [], "deny")).toThrow("permissions.yaml: bash.rm options must be an array or object");
+        expect(() => new BashRuleFactory(testConfigPaths).loadCommandRule(parseYaml("decide: deny\noptions: true"), "rm", [], "deny")).toThrow("permissions.yaml: bash.rm options must be an array or object");
     });
 
     test("throws when options object value is not a string", async () => {
-        expect(() => new BashRuleFactory().loadCommandRule(parseYaml("decide: deny\noptions:\n  message: 42"), "git", [], "deny")).toThrow("permissions.yaml: bash.git options.message must be a string or true");
+        expect(() => new BashRuleFactory(testConfigPaths).loadCommandRule(parseYaml("decide: deny\noptions:\n  message: 42"), "git", [], "deny")).toThrow("permissions.yaml: bash.git options.message must be a string or true");
     });
 
     test("throws when options array element is not a string", async () => {
-        expect(() => new BashRuleFactory().loadCommandRule(parseYaml("decide: deny\noptions:\n  - 42"), "rm", [], "deny")).toThrow("permissions.yaml: bash.rm options must contain only strings");
+        expect(() => new BashRuleFactory(testConfigPaths).loadCommandRule(parseYaml("decide: deny\noptions:\n  - 42"), "rm", [], "deny")).toThrow("permissions.yaml: bash.rm options must contain only strings");
     });
 
     test("throws when options-in is not an array", async () => {
-        expect(() => new BashRuleFactory().loadCommandRule(parseYaml("decide: deny\noptions-in: -r"), "rm", [], "deny")).toThrow("permissions.yaml: bash.rm options-in must be an array");
+        expect(() => new BashRuleFactory(testConfigPaths).loadCommandRule(parseYaml("decide: deny\noptions-in: -r"), "rm", [], "deny")).toThrow("permissions.yaml: bash.rm options-in must be an array");
     });
 
     test("throws when options-in array element is not a string", async () => {
-        expect(() => new BashRuleFactory().loadCommandRule(parseYaml("decide: deny\noptions-in:\n  - 42"), "rm", [], "deny")).toThrow("permissions.yaml: bash.rm options-in must contain only strings");
+        expect(() => new BashRuleFactory(testConfigPaths).loadCommandRule(parseYaml("decide: deny\noptions-in:\n  - 42"), "rm", [], "deny")).toThrow("permissions.yaml: bash.rm options-in must contain only strings");
     });
 
     test("throws on invalid reason type", async () => {
-        expect(() => new BashRuleFactory().loadCommandRule(parseYaml("decide: allow\nreason: 42"), "ls", [], "allow")).toThrow("permissions.yaml: bash.ls reason must be a string");
+        expect(() => new BashRuleFactory(testConfigPaths).loadCommandRule(parseYaml("decide: allow\nreason: 42"), "ls", [], "allow")).toThrow("permissions.yaml: bash.ls reason must be a string");
     });
 
     test("throws when env is not an object", async () => {
-        expect(() => new BashRuleFactory().loadCommandRule(parseYaml("decide: allow\nenv: invalid"), "ls", [], "allow")).toThrow("permissions.yaml: bash.ls env must be an object");
+        expect(() => new BashRuleFactory(testConfigPaths).loadCommandRule(parseYaml("decide: allow\nenv: invalid"), "ls", [], "allow")).toThrow("permissions.yaml: bash.ls env must be an object");
     });
 
     test("throws when env value is not a string", async () => {
-        expect(() => new BashRuleFactory().loadCommandRule(parseYaml("decide: allow\nenv:\n  FOO: 42"), "ls", [], "allow")).toThrow("permissions.yaml: bash.ls env.FOO must be a string");
+        expect(() => new BashRuleFactory(testConfigPaths).loadCommandRule(parseYaml("decide: allow\nenv:\n  FOO: 42"), "ls", [], "allow")).toThrow("permissions.yaml: bash.ls env.FOO must be a string");
     });
 
     test("throws when not is not an object", async () => {
-        expect(() => new BashRuleFactory().loadCommandRule(parseYaml("decide: deny\nnot: invalid"), "aws", [], "deny")).toThrow("permissions.yaml: bash.aws not must be an object");
+        expect(() => new BashRuleFactory(testConfigPaths).loadCommandRule(parseYaml("decide: deny\nnot: invalid"), "aws", [], "deny")).toThrow("permissions.yaml: bash.aws not must be an object");
     });
 
     test("throws when not contains unknown field", async () => {
-        expect(() => new BashRuleFactory().loadCommandRule(parseYaml("decide: deny\nnot:\n  cmd: ls"), "aws", [], "deny")).toThrow("permissions.yaml: bash.aws not unknown field 'cmd'");
+        expect(() => new BashRuleFactory(testConfigPaths).loadCommandRule(parseYaml("decide: deny\nnot:\n  cmd: ls"), "aws", [], "deny")).toThrow("permissions.yaml: bash.aws not unknown field 'cmd'");
     });
 
     test("throws when cwd is not a string", async () => {
-        expect(() => new BashRuleFactory().loadCommandRule(parseYaml("decide: allow\ncwd: 42"), "ls", [], "allow")).toThrow("permissions.yaml: bash.ls cwd must be a string");
+        expect(() => new BashRuleFactory(testConfigPaths).loadCommandRule(parseYaml("decide: allow\ncwd: 42"), "ls", [], "allow")).toThrow("permissions.yaml: bash.ls cwd must be a string");
     });
 
     test("throws when cmd is not a string or array", async () => {
-        expect(() => new BashRuleFactory().loadCommandRule(parseYaml("decide: deny\ncmd: 42"), "aws", [], "deny")).toThrow("permissions.yaml: bash.aws cmd must be a string or array");
+        expect(() => new BashRuleFactory(testConfigPaths).loadCommandRule(parseYaml("decide: deny\ncmd: 42"), "aws", [], "deny")).toThrow("permissions.yaml: bash.aws cmd must be a string or array");
     });
 
     test("throws when cmd array element is not a string", async () => {
-        expect(() => new BashRuleFactory().loadCommandRule(parseYaml("decide: allow\ncmd:\n  - 42"), "cp", [], "allow")).toThrow("permissions.yaml: bash.cp cmd must contain only strings");
+        expect(() => new BashRuleFactory(testConfigPaths).loadCommandRule(parseYaml("decide: allow\ncmd:\n  - 42"), "cp", [], "allow")).toThrow("permissions.yaml: bash.cp cmd must contain only strings");
     });
 
     test("throws when cmd-in is not an array", async () => {
-        expect(() => new BashRuleFactory().loadCommandRule(parseYaml("decide: deny\ncmd-in: '*.json'"), "rm", [], "deny")).toThrow("permissions.yaml: bash.rm cmd-in must be an array");
+        expect(() => new BashRuleFactory(testConfigPaths).loadCommandRule(parseYaml("decide: deny\ncmd-in: '*.json'"), "rm", [], "deny")).toThrow("permissions.yaml: bash.rm cmd-in must be an array");
     });
 
     test("throws when cmd-in element is not a string", async () => {
-        expect(() => new BashRuleFactory().loadCommandRule(parseYaml("decide: deny\ncmd-in:\n  - 42"), "rm", [], "deny")).toThrow("permissions.yaml: bash.rm cmd-in must contain only strings");
+        expect(() => new BashRuleFactory(testConfigPaths).loadCommandRule(parseYaml("decide: deny\ncmd-in:\n  - 42"), "rm", [], "deny")).toThrow("permissions.yaml: bash.rm cmd-in must contain only strings");
     });
 
     test("throws when cwd-in is not an array", async () => {
-        expect(() => new BashRuleFactory().loadCommandRule(parseYaml("decide: allow\ncwd-in: '/home/**'"), "npm", [], "allow")).toThrow("permissions.yaml: bash.npm cwd-in must be an array");
+        expect(() => new BashRuleFactory(testConfigPaths).loadCommandRule(parseYaml("decide: allow\ncwd-in: '/home/**'"), "npm", [], "allow")).toThrow("permissions.yaml: bash.npm cwd-in must be an array");
     });
 
     test("throws when cwd-in element is not a string", async () => {
-        expect(() => new BashRuleFactory().loadCommandRule(parseYaml("decide: allow\ncwd-in:\n  - 42"), "npm", [], "allow")).toThrow("permissions.yaml: bash.npm cwd-in must contain only strings");
+        expect(() => new BashRuleFactory(testConfigPaths).loadCommandRule(parseYaml("decide: allow\ncwd-in:\n  - 42"), "npm", [], "allow")).toThrow("permissions.yaml: bash.npm cwd-in must contain only strings");
     });
 
 });
@@ -1875,27 +1790,27 @@ describe("BashRuleFactory.loadCommandRule", () => {
 describe("BashRuleFactory.entryHasSubcommandKey", () => {
 
     test("returns false when entry has only known fields", async () => {
-        expect(new BashRuleFactory().entryHasSubcommandKey({
+        expect(new BashRuleFactory(testConfigPaths).entryHasSubcommandKey({
             env: { AWS_PROFILE: "sandbox" },
             rules: [],
         })).toBe(false);
     });
 
     test("returns true when entry nests under a subcommand name", async () => {
-        expect(new BashRuleFactory().entryHasSubcommandKey({
+        expect(new BashRuleFactory(testConfigPaths).entryHasSubcommandKey({
             status: { decide: "allow" },
         })).toBe(true);
     });
 
     test("returns true when env is a nested subcommand rule (bash-subcommand-named-env-allow)", async () => {
-        expect(new BashRuleFactory().entryHasSubcommandKey({
+        expect(new BashRuleFactory(testConfigPaths).entryHasSubcommandKey({
             completion: { decide: "allow" },
             env: { decide: "allow" },
         })).toBe(true);
     });
 
     test("returns true when options is a nested subcommand rule (bash-subcommand-named-options-allow)", async () => {
-        expect(new BashRuleFactory().entryHasSubcommandKey({
+        expect(new BashRuleFactory(testConfigPaths).entryHasSubcommandKey({
             get: { decide: "allow" },
             options: { decide: "allow" },
         })).toBe(true);
@@ -1906,11 +1821,11 @@ describe("BashRuleFactory.entryHasSubcommandKey", () => {
 describe("BashRuleFactory.isEnvMatcherMap", () => {
 
     test("returns true for varname-to-pattern maps", async () => {
-        expect(new BashRuleFactory().isEnvMatcherMap({ AWS_PROFILE: "sandbox" })).toBe(true);
+        expect(new BashRuleFactory(testConfigPaths).isEnvMatcherMap({ AWS_PROFILE: "sandbox" })).toBe(true);
     });
 
     test("returns false when decide is present (subcommand named env)", async () => {
-        expect(new BashRuleFactory().isEnvMatcherMap({ decide: "allow" })).toBe(false);
+        expect(new BashRuleFactory(testConfigPaths).isEnvMatcherMap({ decide: "allow" })).toBe(false);
     });
 
 });
@@ -1918,15 +1833,15 @@ describe("BashRuleFactory.isEnvMatcherMap", () => {
 describe("BashRuleFactory.isOptionsMatcher", () => {
 
     test("returns true for flag presence arrays", async () => {
-        expect(new BashRuleFactory().isOptionsMatcher(["v", "n"])).toBe(true);
+        expect(new BashRuleFactory(testConfigPaths).isOptionsMatcher(["v", "n"])).toBe(true);
     });
 
     test("returns true for flag-to-pattern maps", async () => {
-        expect(new BashRuleFactory().isOptionsMatcher({ kubeconfig: "*/sandbox*" })).toBe(true);
+        expect(new BashRuleFactory(testConfigPaths).isOptionsMatcher({ kubeconfig: "*/sandbox*" })).toBe(true);
     });
 
     test("returns false when decide is present (subcommand named options)", async () => {
-        expect(new BashRuleFactory().isOptionsMatcher({ decide: "allow" })).toBe(false);
+        expect(new BashRuleFactory(testConfigPaths).isOptionsMatcher({ decide: "allow" })).toBe(false);
     });
 
 });
@@ -1934,19 +1849,19 @@ describe("BashRuleFactory.isOptionsMatcher", () => {
 describe("BashRuleFactory.isKnownRuleField", () => {
 
     test("treats env matcher maps as known env field", async () => {
-        expect(new BashRuleFactory().isKnownRuleField("env", { FOO: "bar" })).toBe(true);
+        expect(new BashRuleFactory(testConfigPaths).isKnownRuleField("env", { FOO: "bar" })).toBe(true);
     });
 
     test("treats env with decide as a subcommand key", async () => {
-        expect(new BashRuleFactory().isKnownRuleField("env", { decide: "allow" })).toBe(false);
+        expect(new BashRuleFactory(testConfigPaths).isKnownRuleField("env", { decide: "allow" })).toBe(false);
     });
 
     test("treats options arrays as known options field", async () => {
-        expect(new BashRuleFactory().isKnownRuleField("options", ["v"])).toBe(true);
+        expect(new BashRuleFactory(testConfigPaths).isKnownRuleField("options", ["v"])).toBe(true);
     });
 
     test("treats options with decide as a subcommand key", async () => {
-        expect(new BashRuleFactory().isKnownRuleField("options", { decide: "allow" })).toBe(false);
+        expect(new BashRuleFactory(testConfigPaths).isKnownRuleField("options", { decide: "allow" })).toBe(false);
     });
 
 });
@@ -1956,7 +1871,7 @@ describe("BashRuleFactory.loadIntermediateRulesEntry", () => {
     test("returns a childless branch rule for an empty rules array (bash-rules-zero-subrules)", async () => {
         const branchRule = new BashRule("aws", "", undefined, { AWS_PROFILE: "/^(?!sandbox$)/" }, undefined, undefined);
         branchRule.children = [];
-        const rules = new BashRuleFactory().loadIntermediateRulesEntry({
+        const rules = new BashRuleFactory(testConfigPaths).loadIntermediateRulesEntry({
             env: { AWS_PROFILE: "/^(?!sandbox$)/" },
             rules: [],
         }, "aws", []);
@@ -1975,7 +1890,7 @@ describe("BashRuleFactory.loadIntermediateRulesEntry", () => {
         childRule.requiredCmdPatterns = ["*", "delete-*"];
         const branchRule = new BashRule("aws", "", undefined, { AWS_PROFILE: "/^(?!sandbox$)/" }, undefined, undefined);
         branchRule.children = [childRule];
-        const rules = new BashRuleFactory().loadIntermediateRulesEntry({
+        const rules = new BashRuleFactory(testConfigPaths).loadIntermediateRulesEntry({
             env: { AWS_PROFILE: "/^(?!sandbox$)/" },
             rules: [
                 {
@@ -1995,7 +1910,7 @@ describe("BashRuleFactory.loadIntermediateRulesEntry", () => {
         const expected = new BashRule("kubectl", "", undefined, undefined, undefined, undefined);
         expected.children = [getRule];
         expected.catchAll = askRule;
-        expect(new BashRuleFactory().loadIntermediateRulesEntry({
+        expect(new BashRuleFactory(testConfigPaths).loadIntermediateRulesEntry({
             rules: [
                 { cmd: "get", decide: "allow", reason: "Read-only." },
                 { decide: "ask", reason: "Confirm" },
@@ -2008,7 +1923,7 @@ describe("BashRuleFactory.loadIntermediateRulesEntry", () => {
 describe("BashRuleFactory.loadNestedSubcommandEntry", () => {
 
     test("loads subcommand allow rule (bash-subcommand-allow)", async () => {
-        const rules = new BashRuleFactory().loadNestedSubcommandEntry(
+        const rules = new BashRuleFactory(testConfigPaths).loadNestedSubcommandEntry(
             "git",
             [],
             "status",
@@ -2020,7 +1935,7 @@ describe("BashRuleFactory.loadNestedSubcommandEntry", () => {
     });
 
     test("loads subcommand entries from a list", async () => {
-        const rules = new BashRuleFactory().loadNestedSubcommandEntry(
+        const rules = new BashRuleFactory(testConfigPaths).loadNestedSubcommandEntry(
             "npm",
             [],
             "run",
@@ -2037,7 +1952,7 @@ describe("BashRuleFactory.loadNestedSubcommandEntry", () => {
     });
 
     test("throws on scalar subcommand entry", async () => {
-        expect(() => new BashRuleFactory().loadNestedSubcommandEntry("npm", [], "test", "invalid")).toThrow(
+        expect(() => new BashRuleFactory(testConfigPaths).loadNestedSubcommandEntry("npm", [], "test", "invalid")).toThrow(
             "permissions.yaml: bash.npm unknown field 'test'"
         );
     });
@@ -2047,7 +1962,7 @@ describe("BashRuleFactory.loadNestedSubcommandEntry", () => {
 describe("BashRuleFactory.loadSubcommandsOrRules", () => {
 
     test("recurses into nested subcommand entry (env-prefix)", async () => {
-        const rules = new BashRuleFactory().loadSubcommandsOrRules({
+        const rules = new BashRuleFactory(testConfigPaths).loadSubcommandsOrRules({
             test: {
                 env: { NODE_ENV: "test" },
                 decide: "allow",
@@ -2059,7 +1974,7 @@ describe("BashRuleFactory.loadSubcommandsOrRules", () => {
     });
 
     test("loads subcommand allow rule (bash-subcommand-allow)", async () => {
-        const rules = new BashRuleFactory().loadSubcommandsOrRules({
+        const rules = new BashRuleFactory(testConfigPaths).loadSubcommandsOrRules({
             status: { decide: "allow" },
         }, "git", []);
         const expectedRule = new BashRule("git", "allow", undefined, undefined, undefined, undefined);
@@ -2068,7 +1983,7 @@ describe("BashRuleFactory.loadSubcommandsOrRules", () => {
     });
 
     test("loads subcommand deny rule with reason (bash-subcommand-deny)", async () => {
-        const rules = new BashRuleFactory().loadSubcommandsOrRules({
+        const rules = new BashRuleFactory(testConfigPaths).loadSubcommandsOrRules({
             push: { decide: "deny", reason: "no remote pushes" },
         }, "git", []);
         const expectedRule = new BashRule("git", "deny", "no remote pushes", undefined, undefined, undefined);
@@ -2077,7 +1992,7 @@ describe("BashRuleFactory.loadSubcommandsOrRules", () => {
     });
 
     test("loads three-level nested subcommand rule (bash-deep-subcommand)", async () => {
-        const rules = new BashRuleFactory().loadSubcommandsOrRules({
+        const rules = new BashRuleFactory(testConfigPaths).loadSubcommandsOrRules({
             compose: {
                 up: { decide: "allow" },
             },
@@ -2088,7 +2003,7 @@ describe("BashRuleFactory.loadSubcommandsOrRules", () => {
     });
 
     test("loads subcommand entries from a list", async () => {
-        const rules = new BashRuleFactory().loadSubcommandsOrRules({
+        const rules = new BashRuleFactory(testConfigPaths).loadSubcommandsOrRules({
             run: [
                 { decide: "allow" },
                 { decide: "ask" },
@@ -2102,14 +2017,14 @@ describe("BashRuleFactory.loadSubcommandsOrRules", () => {
     });
 
     test("returns empty list for intermediate entry with empty subcommand list", async () => {
-        const rules = new BashRuleFactory().loadSubcommandsOrRules({ run: [] }, "npm", []);
+        const rules = new BashRuleFactory(testConfigPaths).loadSubcommandsOrRules({ run: [] }, "npm", []);
         expect(rules).toEqual([]);
     });
 
     test("returns a childless branch rule for a scoped entry with env and empty rules list (bash-rules-zero-subrules)", async () => {
         const branchRule = new BashRule("aws", "", undefined, { AWS_PROFILE: "/^(?!sandbox$)/" }, undefined, undefined);
         branchRule.children = [];
-        const rules = new BashRuleFactory().loadSubcommandsOrRules({
+        const rules = new BashRuleFactory(testConfigPaths).loadSubcommandsOrRules({
             env: { AWS_PROFILE: "/^(?!sandbox$)/" },
             rules: [],
         }, "aws", []);
@@ -2128,7 +2043,7 @@ describe("BashRuleFactory.loadSubcommandsOrRules", () => {
         childRule.requiredCmdPatterns = ["*", "delete-*"];
         const branchRule = new BashRule("aws", "", undefined, { AWS_PROFILE: "/^(?!sandbox$)/" }, undefined, undefined);
         branchRule.children = [childRule];
-        const rules = new BashRuleFactory().loadSubcommandsOrRules({
+        const rules = new BashRuleFactory(testConfigPaths).loadSubcommandsOrRules({
             env: { AWS_PROFILE: "/^(?!sandbox$)/" },
             rules: [
                 {
@@ -2157,7 +2072,7 @@ describe("BashRuleFactory.loadSubcommandsOrRules", () => {
         const profileBranch = new BashRule("aws", "", undefined, { AWS_PROFILE: "/^(?!sandbox$)/" }, undefined, undefined);
         profileBranch.children = [regionBranch];
         profileBranch.catchAll = askRule;
-        const rules = new BashRuleFactory().loadSubcommandsOrRules({
+        const rules = new BashRuleFactory(testConfigPaths).loadSubcommandsOrRules({
             env: { AWS_PROFILE: "/^(?!sandbox$)/" },
             rules: [
                 {
@@ -2196,7 +2111,7 @@ describe("BashRuleFactory.loadSubcommandsOrRules", () => {
         const profileBranch = new BashRule("aws", "", undefined, { AWS_PROFILE: "/^(?!sandbox$)/" }, undefined, undefined);
         profileBranch.children = [regionBranch];
         profileBranch.catchAll = askRule;
-        const rules = new BashRuleFactory().loadSubcommandsOrRules({
+        const rules = new BashRuleFactory(testConfigPaths).loadSubcommandsOrRules({
             env: { AWS_PROFILE: "/^(?!sandbox$)/" },
             rules: [
                 {
@@ -2226,14 +2141,14 @@ describe("BashRuleFactory.loadSubcommandsOrRules", () => {
     });
 
     test("throws when rule fields appear without decide at intermediate entry", async () => {
-        expect(() => new BashRuleFactory().loadSubcommandsOrRules({
+        expect(() => new BashRuleFactory(testConfigPaths).loadSubcommandsOrRules({
             env: { FOO: "bar" },
             test: { decide: "allow" },
         }, "npm", [])).toThrow("permissions.yaml: bash.npm unknown field 'env'");
     });
 
     test("loads env as a subcommand name beside other subcommands (bash-subcommand-named-env-allow)", async () => {
-        const rules = new BashRuleFactory().loadSubcommandsOrRules({
+        const rules = new BashRuleFactory(testConfigPaths).loadSubcommandsOrRules({
             completion: { decide: "allow", reason: "Readonly helm access" },
             env: { decide: "allow", reason: "Readonly helm access" },
         }, "helm", []);
@@ -2244,7 +2159,7 @@ describe("BashRuleFactory.loadSubcommandsOrRules", () => {
     });
 
     test("loads options as a subcommand name beside other subcommands (bash-subcommand-named-options-allow)", async () => {
-        const rules = new BashRuleFactory().loadSubcommandsOrRules({
+        const rules = new BashRuleFactory(testConfigPaths).loadSubcommandsOrRules({
             get: { decide: "allow", reason: "Readonly kubectl access" },
             options: { decide: "allow", reason: "Readonly kubectl access" },
         }, "kubectl", []);
@@ -2255,20 +2170,20 @@ describe("BashRuleFactory.loadSubcommandsOrRules", () => {
     });
 
     test("throws when reason appears without decide at intermediate entry", async () => {
-        expect(() => new BashRuleFactory().loadSubcommandsOrRules({
+        expect(() => new BashRuleFactory(testConfigPaths).loadSubcommandsOrRules({
             reason: "ignored",
             test: { decide: "allow" },
         }, "npm", [])).toThrow("permissions.yaml: bash.npm unknown field 'reason'");
     });
 
     test("throws on scalar unknown field at intermediate entry", async () => {
-        expect(() => new BashRuleFactory().loadSubcommandsOrRules({
+        expect(() => new BashRuleFactory(testConfigPaths).loadSubcommandsOrRules({
             decidee: "allow",
         }, "npm", [])).toThrow("permissions.yaml: bash.npm unknown field 'decidee'");
     });
 
     test("throws when recursive subcommand entry is invalid", async () => {
-        expect(() => new BashRuleFactory().loadSubcommandsOrRules(parseYaml("test:\n  - null"), "npm", [])).toThrow("permissions.yaml: bash.npm must contain only rule objects");
+        expect(() => new BashRuleFactory(testConfigPaths).loadSubcommandsOrRules(parseYaml("test:\n  - null"), "npm", [])).toThrow("permissions.yaml: bash.npm must contain only rule objects");
     });
 
 });
@@ -2276,13 +2191,13 @@ describe("BashRuleFactory.loadSubcommandsOrRules", () => {
 describe("BashRuleFactory.loadNotFields", () => {
 
     test("returns parsed env (bash-not-env-matches-abstain)", async () => {
-        expect(new BashRuleFactory().loadNotFields("aws", { env: { AWS_PROFILE: "sandbox" } })).toEqual({
+        expect(new BashRuleFactory(testConfigPaths).loadNotFields("aws", { env: { AWS_PROFILE: "sandbox" } })).toEqual({
             env: { AWS_PROFILE: "sandbox" },
         });
     });
 
     test("returns parsed file (bash-not-file-absent-abstain)", async () => {
-        expect(new BashRuleFactory().loadNotFields("kubectl", {
+        expect(new BashRuleFactory(testConfigPaths).loadNotFields("kubectl", {
             file: { "/nonexistent/path/to/file.yaml": { contains: "sandbox" } },
         })).toEqual({
             file: { "/nonexistent/path/to/file.yaml": { contains: "sandbox" } },
@@ -2290,43 +2205,43 @@ describe("BashRuleFactory.loadNotFields", () => {
     });
 
     test("returns parsed cmd-in (bash-not-cmd-in-no-match-fires)", async () => {
-        expect(new BashRuleFactory().loadNotFields("sed", { "cmd-in": ["**"] })).toEqual({
+        expect(new BashRuleFactory(testConfigPaths).loadNotFields("sed", { "cmd-in": ["**"] })).toEqual({
             "cmd-in": ["**"],
         });
     });
 
     test("returns parsed options-in (bash-not-options-in-matches-abstain)", async () => {
-        expect(new BashRuleFactory().loadNotFields("gh", { "options-in": ["X|method", "input"] })).toEqual({
+        expect(new BashRuleFactory(testConfigPaths).loadNotFields("gh", { "options-in": ["X|method", "input"] })).toEqual({
             "options-in": ["X|method", "input"],
         });
     });
 
     test("returns parsed options (bash-not-options-matches-abstain)", async () => {
-        expect(new BashRuleFactory().loadNotFields("yq", { options: ["i|inplace"] })).toEqual({
+        expect(new BashRuleFactory(testConfigPaths).loadNotFields("yq", { options: ["i|inplace"] })).toEqual({
             options: ["i|inplace"],
         });
     });
 
     test("throws when not options is not an array", async () => {
-        expect(() => new BashRuleFactory().loadNotFields("yq", parseYaml("options: i") as INotFields)).toThrow(
+        expect(() => new BashRuleFactory(testConfigPaths).loadNotFields("yq", parseYaml("options: i") as INotFields)).toThrow(
             "permissions.yaml: bash.yq not options must be an array"
         );
     });
 
     test("throws when not cmd-in is not an array", async () => {
-        expect(() => new BashRuleFactory().loadNotFields("sed", parseYaml("cmd-in: '**'") as INotFields)).toThrow(
+        expect(() => new BashRuleFactory(testConfigPaths).loadNotFields("sed", parseYaml("cmd-in: '**'") as INotFields)).toThrow(
             "permissions.yaml: bash.sed not cmd-in must be an array"
         );
     });
 
     test("throws when not cmd-in contains a non-string", async () => {
-        expect(() => new BashRuleFactory().loadNotFields("sed", parseYaml("cmd-in:\n  - 5") as INotFields)).toThrow(
+        expect(() => new BashRuleFactory(testConfigPaths).loadNotFields("sed", parseYaml("cmd-in:\n  - 5") as INotFields)).toThrow(
             "permissions.yaml: bash.sed not cmd-in must contain only strings"
         );
     });
 
     test("throws when not contains unknown field", async () => {
-        expect(() => new BashRuleFactory().loadNotFields("aws", parseYaml("cmd: ls") as INotFields)).toThrow(
+        expect(() => new BashRuleFactory(testConfigPaths).loadNotFields("aws", parseYaml("cmd: ls") as INotFields)).toThrow(
             "permissions.yaml: bash.aws not unknown field 'cmd'"
         );
     });
@@ -2336,22 +2251,22 @@ describe("BashRuleFactory.loadNotFields", () => {
 describe("BashRuleFactory.loadFileField", () => {
 
     test("returns undefined when file field is absent", async () => {
-        expect(new BashRuleFactory().loadFileField("kubectl", undefined)).toBeUndefined();
+        expect(new BashRuleFactory(testConfigPaths).loadFileField("kubectl", undefined)).toBeUndefined();
     });
 
     test("returns parsed file map when valid (bash-not-file-absent-abstain)", async () => {
-        expect(new BashRuleFactory().loadFileField("kubectl", {
+        expect(new BashRuleFactory(testConfigPaths).loadFileField("kubectl", {
             "/nonexistent/path/to/file.yaml": { contains: "sandbox" },
         })).toEqual({
             "/nonexistent/path/to/file.yaml": { contains: "sandbox" },
         });
     });
 
-    test("returns parsed file map for existence-only true", async () => {
+    test("returns parsed file map for existence-only true, expanding ~ from the factory home dir", async () => {
         const originalHome = process.env["HOME"];
-        process.env["HOME"] = "/home/testuser";
+        process.env["HOME"] = "/somebody/else";
         try {
-            expect(new BashRuleFactory().loadFileField("kubectl", {
+            expect(new BashRuleFactory({ projectDir: "/project", homeDir: "/home/testuser" }).loadFileField("kubectl", {
                 "~/.kube/config": true,
             })).toEqual({
                 "/home/testuser/.kube/config": {},
@@ -2367,11 +2282,11 @@ describe("BashRuleFactory.loadFileField", () => {
         }
     });
 
-    test("expands tilde in file paths at load time", async () => {
+    test("expands tilde in file paths at load time from the factory home dir, not the ambient HOME", async () => {
         const originalHome = process.env["HOME"];
-        process.env["HOME"] = "/home/testuser";
+        process.env["HOME"] = "/somebody/else";
         try {
-            expect(new BashRuleFactory().loadFileField("kubectl", {
+            expect(new BashRuleFactory({ projectDir: "/project", homeDir: "/home/testuser" }).loadFileField("kubectl", {
                 "~/.kube/config": { contains: "sandbox" },
             })).toEqual({
                 "/home/testuser/.kube/config": { contains: "sandbox" },
@@ -2388,13 +2303,13 @@ describe("BashRuleFactory.loadFileField", () => {
     });
 
     test("throws when file is not an object", async () => {
-        expect(() => new BashRuleFactory().loadFileField("kubectl", parseYaml("invalid") as IFileFieldMap)).toThrow(
+        expect(() => new BashRuleFactory(testConfigPaths).loadFileField("kubectl", parseYaml("invalid") as IFileFieldMap)).toThrow(
             "permissions.yaml: bash.kubectl file must be an object"
         );
     });
 
     test("throws when file contains value is not a string", async () => {
-        expect(() => new BashRuleFactory().loadFileField("kubectl", parseYaml(
+        expect(() => new BashRuleFactory(testConfigPaths).loadFileField("kubectl", parseYaml(
             "/etc/kubeconfig:\n  contains: 42"
         ) as IFileFieldMap)).toThrow(
             "permissions.yaml: bash.kubectl file./etc/kubeconfig.contains must be a string"
@@ -2406,21 +2321,21 @@ describe("BashRuleFactory.loadFileField", () => {
 describe("BashRuleFactory.loadRequiredEnv", () => {
 
     test("returns undefined when env field is absent", async () => {
-        expect(new BashRuleFactory().loadRequiredEnv("ls", undefined)).toBeUndefined();
+        expect(new BashRuleFactory(testConfigPaths).loadRequiredEnv("ls", undefined)).toBeUndefined();
     });
 
     test("returns parsed env when valid", async () => {
-        expect(new BashRuleFactory().loadRequiredEnv("ls", { FOO: "bar" })).toEqual({ FOO: "bar" });
+        expect(new BashRuleFactory(testConfigPaths).loadRequiredEnv("ls", { FOO: "bar" })).toEqual({ FOO: "bar" });
     });
 
     test("throws when env is not an object", async () => {
-        expect(() => new BashRuleFactory().loadRequiredEnv("ls", parseYaml("invalid"))).toThrow(
+        expect(() => new BashRuleFactory(testConfigPaths).loadRequiredEnv("ls", parseYaml("invalid"))).toThrow(
             "permissions.yaml: bash.ls env must be an object"
         );
     });
 
     test("throws when env value is not a string", async () => {
-        expect(() => new BashRuleFactory().loadRequiredEnv("ls", parseYaml("FOO: 42"))).toThrow(
+        expect(() => new BashRuleFactory(testConfigPaths).loadRequiredEnv("ls", parseYaml("FOO: 42"))).toThrow(
             "permissions.yaml: bash.ls env.FOO must be a string"
         );
     });

@@ -1,4 +1,4 @@
-import { IFileToolEntry } from "../config";
+import { IConfigPaths, IFileToolEntry } from "../config";
 import { IRule, IRuleFactory } from "./rule";
 import { FileToolRule } from "./file-tool-rule";
 
@@ -26,8 +26,12 @@ export class FileToolRuleFactory implements IRuleFactory {
     // File tool category for rules produced by this factory.
     toolType: string;
 
-    constructor(toolType: string) {
+    // Directories that ${{PROJECT_DIR}} and ${{HOME}} expand to in this config.
+    configPaths: IConfigPaths;
+
+    constructor(toolType: string, configPaths: IConfigPaths) {
         this.toolType = toolType;
+        this.configPaths = configPaths;
     }
 
     // Parse a file tool section into rules.
@@ -233,21 +237,13 @@ export class FileToolRuleFactory implements IRuleFactory {
         const projectDirToken = "${{PROJECT_DIR}}";
 
         if (expanded.includes(projectDirToken)) {
-            const projectDir = process.env["CLAUDE_PROJECT_DIR"];
-
-            if (projectDir) {
-                expanded = expanded.split(projectDirToken).join(projectDir);
-            }
+            expanded = expanded.split(projectDirToken).join(this.configPaths.projectDir);
         }
 
         const homeToken = "${{HOME}}";
 
         if (expanded.includes(homeToken)) {
-            const homeDir = process.env["HOME"];
-
-            if (homeDir) {
-                expanded = expanded.split(homeToken).join(homeDir);
-            }
+            expanded = expanded.split(homeToken).join(this.configPaths.homeDir);
         }
 
         return expanded;

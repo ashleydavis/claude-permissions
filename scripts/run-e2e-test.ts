@@ -1,5 +1,5 @@
 import { readFileSync, mkdirSync, writeFileSync, rmSync, readdirSync, statSync, cpSync, lstatSync, existsSync, utimesSync } from "fs";
-import { join, dirname } from "path";
+import { join, dirname, resolve } from "path";
 import { spawnSync } from "child_process";
 import { parse, stringify } from "yaml";
 import { resolvePendingDir } from "../src/pending-prompt-log";
@@ -498,11 +498,17 @@ function runTest(testFilePath: string): boolean {
 
 // main reads the test file path from argv[2] and exits 0 on pass or 1 on fail.
 function main(): void {
-    let testFilePath = process.argv[2];
-    if (!testFilePath) {
+    const testFileArg = process.argv[2];
+    if (!testFileArg) {
         process.stderr.write("Usage: bun run src/run-e2e-test.ts <test-dir-or-file>\n");
         process.exit(1);
     }
+
+    // The test's temp project directory is derived from this path and handed to the hook as
+    // CLAUDE_PROJECT_DIR, which is what ${{PROJECT_DIR}} patterns expand to. A relative argument
+    // leaves that value relative, so no path pattern matches and the test fails for a reason that
+    // has nothing to do with the rule under test. Anchor it before anything else reads it.
+    let testFilePath = resolve(testFileArg);
 
     if (lstatSync(testFilePath).isDirectory()) {
         testFilePath = join(testFilePath, "test.yaml");

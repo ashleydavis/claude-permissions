@@ -489,6 +489,20 @@ bash:
     reason: Confirm before deleting from home directories
 ```
 
+Both tokens are expanded in every pattern field that can name a path: `cwd`, `cwd-in`, `cmd` (string and array forms), `cmd-in`, `options` values, and the `path` / `file` fields of the file-tool sections. A token in an `env` value is not expanded, because those match environment variables rather than paths.
+
+Expanding them in `options` values is how a rule pins a flag that redirects the command at another directory. `git -C` is the example that matters: `cwd` says where the shell is, not which repository git changes, so without the flag pinned an otherwise well-scoped rule would allow `git -C /any/other/repo ...`.
+
+```yaml
+bash:
+  git:
+    merge:
+      options:
+        C: ${{PROJECT_DIR}}
+      decide: allow
+      reason: Merge in this project only
+```
+
 For positional `cmd` patterns, a leading `./` anchors to `${{PROJECT_DIR}}` (or the cwd when that env var is unset). Prefer `${{PROJECT_DIR}}` in `cwd:` patterns.
 
 A glob matches any path under a directory:

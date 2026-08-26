@@ -214,3 +214,34 @@ test("analyzePermission returns ask for ls -l", async () => {
         rmSync(projectDir, { recursive: true, force: true });
     }
 });
+
+test("analyzePermission expands ${{PROJECT_DIR}} using the project dir it was given, not the ambient env var", async () => {
+    const projectDir = makeTmpProjectDir([
+        "bash:",
+        "  git:",
+        "    merge:",
+        "      cwd: ${{PROJECT_DIR}}/**",
+        "      decide: allow",
+        "      reason: merge in this project",
+        "",
+    ].join("\n"));
+
+    // The ambient variable names a different directory from the one being analysed, so a rule
+    // expanded from the environment would anchor somewhere the command is not and never match.
+    const savedProjectDir = process.env["CLAUDE_PROJECT_DIR"];
+    process.env["CLAUDE_PROJECT_DIR"] = tmpdir();
+    try {
+        const result = await analyzePermission("git merge feature --ff-only", projectDir, projectDir, tmpdir());
+        expect(result.decision).toBe("allow");
+        expect(result.reason).toBe("merge in this project");
+    }
+    finally {
+        if (savedProjectDir !== undefined) {
+            process.env["CLAUDE_PROJECT_DIR"] = savedProjectDir;
+        }
+        else {
+            delete process.env["CLAUDE_PROJECT_DIR"];
+        }
+        rmSync(projectDir, { recursive: true, force: true });
+    }
+});

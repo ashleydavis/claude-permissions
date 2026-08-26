@@ -1,5 +1,6 @@
 import { FileToolRule } from "../../rules/file-tool-rule";
 import { FileToolRuleFactory } from "../../rules/file-tool-rule-factory";
+import { testConfigPaths } from "../test-config-paths";
 import { FilePathToolAstNode } from "../../ast-nodes/file-path-tool-ast-node";
 import { WebFetchAstNode } from "../../ast-nodes/webfetch-ast-node";
 
@@ -204,14 +205,14 @@ describe("FileToolRuleFactory.load", () => {
         const listRule = new FileToolRule("write", [], "", undefined, undefined);
         listRule.children = [denyRule];
         listRule.catchAll = askRule;
-        expect(new FileToolRuleFactory("write").load([
+        expect(new FileToolRuleFactory("write", testConfigPaths).load([
             { path: "**/.env", decide: "deny" },
             { decide: "ask" },
         ])).toEqual([listRule]);
     });
 
     test("leaves unconstrained decide lists flat for strictest at the AST", async () => {
-        expect(new FileToolRuleFactory("write").load([
+        expect(new FileToolRuleFactory("write", testConfigPaths).load([
             { decide: "allow", reason: "ok" },
             { decide: "ask", reason: "Confirm" },
         ])).toEqual([
@@ -221,7 +222,7 @@ describe("FileToolRuleFactory.load", () => {
     });
 
     test("accepts and ignores examples", async () => {
-        expect(new FileToolRuleFactory("read").load({
+        expect(new FileToolRuleFactory("read", testConfigPaths).load({
             path: "/project/**",
             decide: "allow",
             examples: {
@@ -246,7 +247,7 @@ describe("FileToolRuleFactory.loadSubrules", () => {
         listRule.requiredCwd = "/projects/production/**";
         listRule.children = [denyRule];
         listRule.catchAll = askRule;
-        expect(new FileToolRuleFactory("write").loadSubrules({
+        expect(new FileToolRuleFactory("write", testConfigPaths).loadSubrules({
             cwd: "/projects/production/**",
             rules: [
                 { path: "**/.env", decide: "deny", reason: "Env files protected." },

@@ -1,4 +1,4 @@
-import { IBashConfig, IBashEntry, IEnvVarMap, IFileFieldMap, INotFields, IOptionPatternMap } from "../config";
+import { IBashConfig, IBashEntry, IConfigPaths, IEnvVarMap, IFileFieldMap, INotFields, IOptionPatternMap } from "../config";
 import { IRule, IRuleFactory, ISourceLocation } from "./rule";
 import { BashRule } from "./bash-rule";
 
@@ -39,6 +39,13 @@ const NOT_KNOWN_FIELDS = new Set([
 
 // BashRuleFactory parses a bash section into BashRule instances.
 export class BashRuleFactory implements IRuleFactory {
+
+    // Directories that ${{PROJECT_DIR}}, ${{HOME}} and a leading ~/ expand to in this config.
+    configPaths: IConfigPaths;
+
+    constructor(configPaths: IConfigPaths) {
+        this.configPaths = configPaths;
+    }
 
     // Parse a bash section into command-name rules.
     //
@@ -135,40 +142,26 @@ export class BashRuleFactory implements IRuleFactory {
         const projectDirToken = "${{PROJECT_DIR}}";
 
         if (expanded.includes(projectDirToken)) {
-            const projectDir = process.env["CLAUDE_PROJECT_DIR"];
-
-            if (projectDir) {
-                expanded = expanded.split(projectDirToken).join(projectDir);
-            }
+            expanded = expanded.split(projectDirToken).join(this.configPaths.projectDir);
         }
 
         const homeToken = "${{HOME}}";
 
         if (expanded.includes(homeToken)) {
-            const homeDir = process.env["HOME"];
-
-            if (homeDir) {
-                expanded = expanded.split(homeToken).join(homeDir);
-            }
+            expanded = expanded.split(homeToken).join(this.configPaths.homeDir);
         }
 
         return expanded;
     }
 
-    // Expand a leading ~/ on a file path using HOME.
+    // Expand a leading ~/ on a file path using the home directory this config was loaded for.
     expandTildePath(filePath: string): string {
 
         if (!filePath.startsWith("~/")) {
             return filePath;
         }
 
-        const homeDir = process.env["HOME"];
-
-        if (!homeDir) {
-            return filePath;
-        }
-
-        return `${homeDir}/${filePath.slice(2)}`;
+        return `${this.configPaths.homeDir}/${filePath.slice(2)}`;
     }
 
     //
@@ -233,7 +226,7 @@ export class BashRuleFactory implements IRuleFactory {
                     throw new Error(`permissions.yaml: bash.${commandName} cwd-in must contain only strings`);
                 }
 
-                requiredCwdInPatterns.push(cwdInPattern);
+                requiredCwdInPatterns.push(this.expandProjectDirToken(cwdInPattern));
             }
         }
 
@@ -255,7 +248,7 @@ export class BashRuleFactory implements IRuleFactory {
                         throw new Error(`permissions.yaml: bash.${commandName} cmd must contain only strings`);
                     }
 
-                    requiredCmdPatterns.push(cmdPattern);
+                    requiredCmdPatterns.push(this.expandProjectDirToken(cmdPattern));
                 }
             }
             else {
@@ -323,7 +316,7 @@ export class BashRuleFactory implements IRuleFactory {
                             requiredOptionPatterns = {};
                         }
 
-                        requiredOptionPatterns[flagName] = pattern;
+                        requiredOptionPatterns[flagName] = this.expandProjectDirToken(pattern);
                     }
                     else {
                         throw new Error(`permissions.yaml: bash.${commandName} options.${flagName} must be a string or true`);

@@ -1,0 +1,23 @@
+description: "bash: option value pattern ${{PROJECT_DIR}} expands and matches a flag pointing at the project"
+
+input:
+  tool_name: Bash
+  tool_input:
+    command: "git --git-dir=${PROJECT_DIR}/.git merge feature --ff-only"
+  cwd: ${PROJECT_DIR}
+
+rules: {}
+
+home_dir_files:
+  bash-option-value-projectdir.yaml:
+    bash:
+      git:
+        merge:
+          options:
+            git-dir: "${{PROJECT_DIR}}/.git"
+          decide: allow
+          reason: "merge inside this project"
+
+expected:
+  decision: allow
+  reason: "merge inside this project"

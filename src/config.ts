@@ -248,6 +248,18 @@ export interface IGenericToolConfig {
     sourceLocation?: ISourceLocation;
 }
 
+// IConfigPaths carries the directories a rule's path tokens expand to as it is loaded. The engine
+// takes them from whoever is running it rather than from the ambient environment, so a caller
+// analysing one project from inside another gets that project's rules anchored where it asked.
+export interface IConfigPaths {
+
+    // Directory that ${{PROJECT_DIR}} expands to.
+    projectDir: string;
+
+    // Directory that ${{HOME}} expands to, and that a leading ~/ in a file path resolves against.
+    homeDir: string;
+}
+
 // SectonConfig is any valid top-level permissions.yaml section block.
 export type SectionConfig = IBashConfig | IFileToolEntry | IFileToolEntry[] | IWebFetchConfig | IGrepConfig | IRedirectConfig | IGenericToolConfig;
 

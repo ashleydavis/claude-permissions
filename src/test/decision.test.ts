@@ -9,6 +9,7 @@ import {
 } from "../decision";
 import { IPermissionsConfig } from "../config";
 import { IRules, load } from "../load";
+import { testConfigPaths } from "./test-config-paths";
 import { builtinRules } from "../rules/builtin";
 import { BashRule } from "../rules/bash-rule";
 import { BashRuleFactory } from "../rules/bash-rule-factory";
@@ -321,7 +322,7 @@ describe("decide", () => {
 
     test("returns deny for scoped bash rule with cmd matcher (bash-rules-one-subrule)", async () => {
         const ast = parse(makeCall("AWS_PROFILE=prod aws ec2 delete-instance --instance-id i-123"), new Map());
-        const bashRules = new BashRuleFactory().load({
+        const bashRules = new BashRuleFactory(testConfigPaths).load({
             aws: [{
                 env: { AWS_PROFILE: "/^(?!sandbox$)/" },
                 rules: [{

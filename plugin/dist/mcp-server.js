@@ -23121,13 +23121,13 @@ class BashRule {
   async evaluateFile(path, fileMatch, context, missingFileResult) {
     let filePath = path;
     if (filePath.startsWith("~/")) {
-      const homeDir = process.env["HOME"];
+      const homeDir = context.homeDir;
       if (homeDir) {
         filePath = `${homeDir}/${filePath.slice(2)}`;
       }
     }
     if (!filePath.startsWith("/")) {
-      const projectDir = process.env["CLAUDE_PROJECT_DIR"] ?? context.cwd;
+      const projectDir = context.projectDir ?? context.cwd;
       filePath = resolve(projectDir, filePath);
     }
     let content;
@@ -23213,7 +23213,7 @@ class BashRule {
       positionalArg = resolve(context.cwd, positional);
     }
     if (cmdInPattern.startsWith("./")) {
-      cmdGlob = resolve(process.env["CLAUDE_PROJECT_DIR"] ?? context.cwd, cmdInPattern);
+      cmdGlob = resolve(context.projectDir ?? context.cwd, cmdInPattern);
     }
     return import_picomatch.default(cmdGlob, { dot: true })(positionalArg);
   }
@@ -23236,7 +23236,7 @@ class BashRule {
     for (const cwdInPattern of this.requiredCwdInPatterns) {
       let cwdGlob = cwdInPattern;
       if (cwdInPattern.startsWith("./")) {
-        cwdGlob = resolve(process.env["CLAUDE_PROJECT_DIR"] ?? context.cwd, cwdInPattern);
+        cwdGlob = resolve(context.projectDir ?? context.cwd, cwdInPattern);
       }
       if (import_picomatch.default(cwdGlob, { dot: true })(resolve(context.cwd))) {
         return true;
@@ -23261,7 +23261,7 @@ class BashRule {
         positionalArg = resolve(context.cwd, positional);
       }
       if (cmdPattern.startsWith("./")) {
-        cmdGlob = resolve(process.env["CLAUDE_PROJECT_DIR"] ?? context.cwd, cmdPattern);
+        cmdGlob = resolve(context.projectDir ?? context.cwd, cmdPattern);
       }
       let cmdMatched = false;
       if (cmdPattern.length >= 2 && cmdPattern.startsWith("/") && cmdPattern.endsWith("/")) {
@@ -23460,6 +23460,10 @@ var NOT_KNOWN_FIELDS = new Set([
 ]);
 
 class BashRuleFactory {
+  configPaths;
+  constructor(configPaths) {
+    this.configPaths = configPaths;
+  }
   load(bashConfig) {
     if (!bashConfig || typeof bashConfig !== "object" || Array.isArray(bashConfig)) {
       throw new Error("permissions.yaml: bash must be an object");
@@ -23510,17 +23514,11 @@ class BashRuleFactory {
     let expanded = pattern;
     const projectDirToken = "${{PROJECT_DIR}}";
     if (expanded.includes(projectDirToken)) {
-      const projectDir = process.env["CLAUDE_PROJECT_DIR"];
-      if (projectDir) {
-        expanded = expanded.split(projectDirToken).join(projectDir);
-      }
+      expanded = expanded.split(projectDirToken).join(this.configPaths.projectDir);
     }
     const homeToken = "${{HOME}}";
     if (expanded.includes(homeToken)) {
-      const homeDir = process.env["HOME"];
-      if (homeDir) {
-        expanded = expanded.split(homeToken).join(homeDir);
-      }
+      expanded = expanded.split(homeToken).join(this.configPaths.homeDir);
     }
     return expanded;
   }
@@ -23528,11 +23526,7 @@ class BashRuleFactory {
     if (!filePath.startsWith("~/")) {
       return filePath;
     }
-    const homeDir = process.env["HOME"];
-    if (!homeDir) {
-      return filePath;
-    }
-    return `${homeDir}/${filePath.slice(2)}`;
+    return `${this.configPaths.homeDir}/${filePath.slice(2)}`;
   }
   loadCommandRule(bashEntry, commandName, subcommandPath, decide2) {
     for (const entryKey of Object.keys(bashEntry)) {
@@ -23564,7 +23558,7 @@ class BashRuleFactory {
         if (typeof cwdInPattern !== "string") {
           throw new Error(`permissions.yaml: bash.${commandName} cwd-in must contain only strings`);
         }
-        requiredCwdInPatterns.push(cwdInPattern);
+        requiredCwdInPatterns.push(this.expandProjectDirToken(cwdInPattern));
       }
     }
     const cmdField = bashEntry.cmd;
@@ -23578,7 +23572,7 @@ class BashRuleFactory {
           if (typeof cmdPattern !== "string") {
             throw new Error(`permissions.yaml: bash.${commandName} cmd must contain only strings`);
           }
-          requiredCmdPatterns.push(cmdPattern);
+          requiredCmdPatterns.push(this.expandProjectDirToken(cmdPattern));
         }
       } else {
         throw new Error(`permissions.yaml: bash.${commandName} cmd must be a string or array`);
@@ -23628,7 +23622,7 @@ class BashRuleFactory {
             if (!requiredOptionPatterns) {
               requiredOptionPatterns = {};
             }
-            requiredOptionPatterns[flagName] = pattern;
+            requiredOptionPatterns[flagName] = this.expandProjectDirToken(pattern);
           } else {
             throw new Error(`permissions.yaml: bash.${commandName} options.${flagName} must be a string or true`);
           }
@@ -23930,6 +23924,8 @@ class CdRule {
         context: {
           cwd: context.cwd,
           cwdResolved: false,
+          projectDir: context.projectDir,
+          homeDir: context.homeDir,
           env: context.env
         }
       };
@@ -23938,6 +23934,8 @@ class CdRule {
     return {
       context: {
         cwd: newCwd,
+        projectDir: context.projectDir,
+        homeDir: context.homeDir,
         env: context.env
       }
     };
@@ -24114,8 +24112,10 @@ var FILE_TOOL_KNOWN_FIELDS = new Set([
 
 class FileToolRuleFactory {
   toolType;
-  constructor(toolType) {
+  configPaths;
+  constructor(toolType, configPaths) {
     this.toolType = toolType;
+    this.configPaths = configPaths;
   }
   load(fileToolConfig) {
     if (!fileToolConfig || typeof fileToolConfig !== "object") {
@@ -24253,17 +24253,11 @@ class FileToolRuleFactory {
     let expanded = pattern;
     const projectDirToken = "${{PROJECT_DIR}}";
     if (expanded.includes(projectDirToken)) {
-      const projectDir = process.env["CLAUDE_PROJECT_DIR"];
-      if (projectDir) {
-        expanded = expanded.split(projectDirToken).join(projectDir);
-      }
+      expanded = expanded.split(projectDirToken).join(this.configPaths.projectDir);
     }
     const homeToken = "${{HOME}}";
     if (expanded.includes(homeToken)) {
-      const homeDir = process.env["HOME"];
-      if (homeDir) {
-        expanded = expanded.split(homeToken).join(homeDir);
-      }
+      expanded = expanded.split(homeToken).join(this.configPaths.homeDir);
     }
     return expanded;
   }
@@ -24757,16 +24751,18 @@ class WebFetchRuleFactory {
 }
 
 // src/load.ts
-var sectionFactories = {
-  bash: new BashRuleFactory,
-  read: new FileToolRuleFactory("read"),
-  write: new FileToolRuleFactory("write"),
-  edit: new FileToolRuleFactory("edit"),
-  multi_edit: new FileToolRuleFactory("multiedit"),
-  webfetch: new WebFetchRuleFactory,
-  grep: new GrepRuleFactory,
-  redirect: new RedirectRuleFactory
-};
+function makeSectionFactories(configPaths) {
+  return {
+    bash: new BashRuleFactory(configPaths),
+    read: new FileToolRuleFactory("read", configPaths),
+    write: new FileToolRuleFactory("write", configPaths),
+    edit: new FileToolRuleFactory("edit", configPaths),
+    multi_edit: new FileToolRuleFactory("multiedit", configPaths),
+    webfetch: new WebFetchRuleFactory,
+    grep: new GrepRuleFactory,
+    redirect: new RedirectRuleFactory
+  };
+}
 function loadSection(permissionsConfig, sectionKey, factory) {
   const sectionConfig = permissionsConfig[sectionKey];
   if (!sectionConfig) {
@@ -24774,7 +24770,7 @@ function loadSection(permissionsConfig, sectionKey, factory) {
   }
   return factory.load(sectionConfig);
 }
-async function loadConfigFile(configPath) {
+async function loadConfigFile(configPath, configPaths) {
   let content;
   try {
     content = await readFile2(configPath, "utf-8");
@@ -24790,12 +24786,13 @@ async function loadConfigFile(configPath) {
     throw new Error("permissions.yaml: root must be an object");
   }
   const configRules = [];
+  const sectionFactories = makeSectionFactories(configPaths);
   for (const sectionKey of Object.keys(permissionsConfig)) {
     configRules.push(...loadSection(permissionsConfig, sectionKey, sectionFactories[sectionKey.toLowerCase()] || new GenericToolRuleFactory(sectionKey)));
   }
   return configRules;
 }
-async function loadPermissionsDir(permissionsDir, displayPrefix, logger) {
+async function loadPermissionsDir(permissionsDir, displayPrefix, logger, configPaths) {
   const configFileNames = [];
   try {
     const dirEntries = await readdir(permissionsDir);
@@ -24821,7 +24818,7 @@ async function loadPermissionsDir(permissionsDir, displayPrefix, logger) {
   configFileNames.sort();
   const dirRules = [];
   for (const configFileName of configFileNames) {
-    const configFileRules = await loadConfigFile(join(permissionsDir, configFileName));
+    const configFileRules = await loadConfigFile(join(permissionsDir, configFileName), configPaths);
     logConfigLoad(logger, `${displayPrefix}/${configFileName}`, configFileRules.length);
     dirRules.push(...configFileRules);
   }
@@ -24829,15 +24826,19 @@ async function loadPermissionsDir(permissionsDir, displayPrefix, logger) {
 }
 async function load(projectDir, homeDir, logger) {
   const rules = [...builtinRules];
-  const homeMainRules = await loadConfigFile(join(homeDir, ".claude", "permissions.yaml"));
+  const configPaths = {
+    projectDir,
+    homeDir
+  };
+  const homeMainRules = await loadConfigFile(join(homeDir, ".claude", "permissions.yaml"), configPaths);
   logConfigLoad(logger, "~/.claude/permissions.yaml", homeMainRules.length);
   rules.push(...homeMainRules);
   const homePermissionsDir = join(homeDir, ".claude", "permissions.d");
-  rules.push(...await loadPermissionsDir(homePermissionsDir, "~/.claude/permissions.d", logger));
-  const projectMainRules = await loadConfigFile(join(projectDir, ".claude", "permissions.yaml"));
+  rules.push(...await loadPermissionsDir(homePermissionsDir, "~/.claude/permissions.d", logger, configPaths));
+  const projectMainRules = await loadConfigFile(join(projectDir, ".claude", "permissions.yaml"), configPaths);
   logConfigLoad(logger, ".claude/permissions.yaml", projectMainRules.length);
   rules.push(...projectMainRules);
-  rules.push(...await loadPermissionsDir(join(projectDir, ".claude", "permissions.d"), ".claude/permissions.d", logger));
+  rules.push(...await loadPermissionsDir(join(projectDir, ".claude", "permissions.d"), ".claude/permissions.d", logger, configPaths));
   return { rules };
 }
 
@@ -26403,7 +26404,7 @@ async function analyzePermission(input, cwd, projectDir, homeDir) {
   const ast = await parseToolCallToAst(toolCall, homeDir, projectDir);
   const capturingLogger = new CapturingAuditLogger;
   const rules = await load(projectDir, homeDir, capturingLogger);
-  const startingContext = { cwd: toolCall.cwd, cwdResolved: true, env: {} };
+  const startingContext = { cwd: toolCall.cwd, cwdResolved: true, projectDir, homeDir, env: {} };
   const decision = await decide(ast, rules, startingContext, capturingLogger);
   return {
     decision: decision !== undefined ? decision.action : "ask",

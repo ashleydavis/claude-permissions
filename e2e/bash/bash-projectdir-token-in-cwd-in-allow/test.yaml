@@ -1,0 +1,23 @@
+description: "bash: cwd-in pattern ${{PROJECT_DIR}} expands and matches a directory inside the project"
+
+input:
+  tool_name: Bash
+  tool_input:
+    command: "npm install"
+  cwd: ${PROJECT_DIR}/src
+
+rules: {}
+
+home_dir_files:
+  bash-cwd-in-projectdir.yaml:
+    bash:
+      npm:
+        cwd-in:
+          - "/nowhere/**"
+          - "${{PROJECT_DIR}}/**"
+        decide: allow
+        reason: "npm inside this project"
+
+expected:
+  decision: allow
+  reason: "npm inside this project"

@@ -96,7 +96,7 @@ export async function runHook(): Promise<void> {
         });
         const ast = await parseToolCallToAst(call, homeDir, projectDir);
         const rules = await load(projectDir, homeDir, logger);
-        const startingContext = { cwd: call.cwd, cwdResolved: true, env: {} };
+        const startingContext = { cwd: call.cwd, cwdResolved: true, projectDir, homeDir, env: {} };
         const capturingLogger = new CapturingAuditLogger();
         const decision = await decide(ast, rules, startingContext, capturingLogger);
         for (const entry of capturingLogger.getEntries()) {

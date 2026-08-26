@@ -1,0 +1,22 @@
+description: "bash: option value pattern ${{PROJECT_DIR}} does not match a flag pointing at another repository"
+
+input:
+  tool_name: Bash
+  tool_input:
+    command: "git --git-dir=/somewhere/else/.git merge feature --ff-only"
+  cwd: ${PROJECT_DIR}
+
+rules: {}
+
+home_dir_files:
+  bash-option-value-projectdir.yaml:
+    bash:
+      git:
+        merge:
+          options:
+            git-dir: "${{PROJECT_DIR}}/.git"
+          decide: allow
+          reason: "merge inside this project"
+
+expected:
+  decision: ask
